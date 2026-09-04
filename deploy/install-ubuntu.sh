@@ -41,6 +41,16 @@ if [[ "$SRC_DIR" != "$APP_DIR" ]]; then
 fi
 mkdir -p "$APP_DIR/data" "$APP_DIR/logs"
 
+# data/ is excluded above so the live sqlite database survives an upgrade, but
+# the leader file is configuration, not state -- without it copy_trader loads
+# zero wallets and silently never trades. Copy it explicitly.
+if [[ -f "$SRC_DIR/data/top_traders.json" && "$SRC_DIR" != "$APP_DIR" ]]; then
+  cp "$SRC_DIR/data/top_traders.json" "$APP_DIR/data/top_traders.json"
+  echo "    installed data/top_traders.json ($(python3 -c "import json,sys; print(len(json.load(open('$APP_DIR/data/top_traders.json'))['traders']))") leader wallets)"
+elif [[ ! -f "$APP_DIR/data/top_traders.json" ]]; then
+  echo "    WARNING: no data/top_traders.json -- copy trading will be idle"
+fi
+
 echo "==> Building virtualenv"
 if [[ ! -x "$APP_DIR/.venv/bin/python" ]]; then
   python3 -m venv "$APP_DIR/.venv"

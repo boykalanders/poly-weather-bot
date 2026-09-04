@@ -1,15 +1,10 @@
-# Research artefacts are large and regenerable; keep only the two that matter:
-#   top_traders.json   - the leader file the bot actually reads
-#   trader_profiles.json - the evidence behind the leader selection
+# Runtime state -- regenerated on the VPS, never committed.
 data/*
 !data/top_traders.json
-!data/trader_profiles.json
 
 .env
 .venv/
 logs/
-data/*.sqlite3
 __pycache__/
 *.pyc
 *.sqlite3
-logs_*.txt

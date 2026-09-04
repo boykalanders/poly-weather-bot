@@ -1,7 +1,7 @@
 """Copy-trading strategy.
 
-Mirrors, at a scaled-down size, the weather-market trades of the wallets picked
-out by the research pipeline (`data/top_traders.json`).
+Mirrors, at a scaled-down size, the weather-market trades of the wallets listed
+in `data/top_traders.json`.
 
 Two hard rules keep this honest:
   * only weather markets are mirrored, even if a leader trades everything else;
