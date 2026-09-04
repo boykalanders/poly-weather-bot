@@ -134,10 +134,13 @@ MIN_WEATHER_TRADES   = 200
 MIN_WEATHER_PNL      = 0.0
 ```
 
-### Important finding about "2 years of weather trading"
+### What the research actually found
 
-Polymarket's weather category **is not two years old**. Event counts by month
-from the full Gamma dump:
+Run over the full history (Sept 2026), the pipeline covered **12,296 weather
+events / 126,691 markets**, sampled 1,967 of them, and saw **120,046 distinct
+wallets**. The 150 most weather-active were profiled in full.
+
+**Polymarket's weather category is not two years old.** Event counts by month:
 
 ```
 2023        4 events   (one-off climate markets)
@@ -148,11 +151,43 @@ from the full Gamma dump:
 2026-06  1697   2026-07 1822   2026-08 2491
 ```
 
-The daily city-temperature series only became a real category in **December
-2025**. So no wallet can have a two-year track record *in weather markets* —
-the markets did not exist. The filter therefore applies the two-year test to
-**account lifetime** (first Polymarket trade ≥ 730 days ago) and ranks on
-weather-specific PnL over the period the markets have actually existed.
+Daily city-temperature markets only became a real category in **December 2025**.
+So no wallet can have a two-year track record *in weather* — the markets did not
+exist. The two-year test is therefore applied to **account lifetime** (first
+Polymarket activity ≥ 730 days ago), with performance measured over the period
+the weather markets have actually existed.
+
+Of the 150 profiled:
+
+| Filter | Passing |
+|---|---|
+| account age ≥ 730d | 13 |
+| trades on ≥80% of observed days | 90 |
+| ≥200 weather trades | 140 |
+| positive weather PnL | 94 |
+| traded within last 3 days | 90 |
+| **all of the above** | **2** |
+| all except the 2-year age bar | 48 |
+
+**Tier A** — 2+ year old account, trades near-daily, profitable in weather:
+
+| Wallet | Name | Joined | Day% | Wx trades | Wx PnL | ROI | Win |
+|---|---|---|---|---|---|---|---|
+| `0x44c1dfe4…3ebc1` | aenews2 | 2024-01-14 | 94% | 715 | $35,860 | 1.1% | 79% |
+| `0xa49b6ea0…87054` | 3874110074…| 2024-04-24 | 99% | 1,328 | $3,753 | 7.0% | 51% |
+
+**Tier B** — same bar, younger account (half weight in the leader file):
+opopv2, ShyGuy1, meropi, neobrother, OnlyLuckNoBrain, Legend-, KickstandBot,
+VibeTrader.
+
+Two leaders is too thin to diversify across, which is why `data/top_traders.json`
+carries Tier A at weight 1.0 and the best eight of Tier B at 0.5.
+
+A note on the activity metric: the trade feed is newest-first and capped, so for
+very active wallets it only covers a recent window. Measuring "days active out of
+the last 365" against a truncated window scores the *most* active traders lowest,
+so the ratio is computed over the window actually observed
+(`active_day_ratio_window`), requiring ≥60 days of span.
 
 ---
 
