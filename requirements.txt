@@ -1,17 +1,25 @@
+# Ranges rather than exact pins: the bot is deployed on whatever Python the VPS
+# ships (3.10-3.13), and exact pins force pip into resolutions that do not exist
+# for every interpreter. Major versions are capped so an upgrade cannot land a
+# breaking release unannounced.
+
 # --- core ---
-python-dotenv==1.0.1
-httpx==0.27.2
-pydantic==2.9.2
-pydantic-settings==2.5.2
-tenacity==9.0.0
+python-dotenv>=1.0,<2
+httpx>=0.27,<0.29
+pydantic>=2.9,<3
+pydantic-settings>=2.5,<3
+tenacity>=9.0,<10
 
 # --- polymarket trading ---
-py-clob-client==0.19.0
-web3==6.20.3
+# Brings its own eth-account / eth-utils / py-order-utils stack.
+#
+# Do NOT add web3 here. Nothing in this project imports it, and pinning it
+# alongside py-clob-client is unresolvable: py-clob-client >=0.20 needs
+# eth-account>=0.13, while web3 6.x caps eth-account<0.13.
+py-clob-client>=0.34,<1
 
 # --- telegram ---
-python-telegram-bot[job-queue]==21.6
-
-# --- scheduling / misc ---
-APScheduler==3.10.4
-python-dateutil==2.9.0.post0
+# The job-queue extra is deliberately omitted: the engine schedules its own
+# loops on threads (see engine/bot.py) and never touches PTB's JobQueue, so
+# APScheduler is dead weight.
+python-telegram-bot>=21.6,<23
