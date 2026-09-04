@@ -34,6 +34,9 @@ MIN_ACTIVE_DAY_RATIO = 0.80     # "trades every day", over the observed window
 MIN_WEATHER_TRADES = 200
 MIN_WEATHER_RESOLVED = 50
 MIN_WEATHER_PNL = 0.0
+# "Still active", not "traded this instant".  A daily trader can take a long
+# weekend; a 3-day rule dropped the best wallet in the sample by 0.7 days.
+MAX_DAYS_SINCE_LAST_TRADE = 10
 
 MAX_CANDIDATES = 150            # profile only the most weather-active candidates
 MAX_TRADE_PAGES = 20            # 500 trades/page -> 10k most recent trades
@@ -253,7 +256,7 @@ def main():
             and p["weather_trades"] >= MIN_WEATHER_TRADES
             and p["weather_resolved_legs"] >= MIN_WEATHER_RESOLVED
             and p["weather_pnl"] > MIN_WEATHER_PNL
-            and p["days_since_last_trade"] <= 3
+            and p["days_since_last_trade"] <= MAX_DAYS_SINCE_LAST_TRADE
         )
 
     selected = [p for p in profiles if passes(p)]
@@ -283,7 +286,7 @@ def main():
             and p["weather_trades"] >= MIN_WEATHER_TRADES
             and p["weather_resolved_legs"] >= MIN_WEATHER_RESOLVED
             and p["weather_pnl"] > MIN_WEATHER_PNL
-            and p["days_since_last_trade"] <= 3
+            and p["days_since_last_trade"] <= MAX_DAYS_SINCE_LAST_TRADE
         )
 
     tier_a = [p for p in profiles if core(p) and p["account_age_days"] >= MIN_ACCOUNT_AGE_DAYS]

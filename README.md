@@ -165,23 +165,30 @@ Of the 150 profiled:
 | trades on ≥80% of observed days | 90 |
 | ≥200 weather trades | 140 |
 | positive weather PnL | 94 |
-| traded within last 3 days | 90 |
-| **all of the above** | **2** |
-| all except the 2-year age bar | 48 |
+| traded within last 10 days | 103 |
+| **all of the above** | **4** |
+| all except the 2-year age bar | 50 |
 
 **Tier A** — 2+ year old account, trades near-daily, profitable in weather:
 
 | Wallet | Name | Joined | Day% | Wx trades | Wx PnL | ROI | Win |
 |---|---|---|---|---|---|---|---|
+| `0xf2f6af4f…d5817` | gopfan2 | 2024-08-21 | 81% | 1,386 | **$112,828** | 10.9% | 64% |
 | `0x44c1dfe4…3ebc1` | aenews2 | 2024-01-14 | 94% | 715 | $35,860 | 1.1% | 79% |
+| `0xaa7a74b8…24d23` | securebet | 2024-07-23 | 80% | 2,828 | $5,664 | 10.0% | 55% |
 | `0xa49b6ea0…87054` | 3874110074…| 2024-04-24 | 99% | 1,328 | $3,753 | 7.0% | 51% |
 
 **Tier B** — same bar, younger account (half weight in the leader file):
-opopv2, ShyGuy1, meropi, neobrother, OnlyLuckNoBrain, Legend-, KickstandBot,
-VibeTrader.
+opopv2, ShyGuy1, meropi, HenryTheAtmoPhD, neobrother, OnlyLuckNoBrain, Legend-,
+KickstandBot.
 
-Two leaders is too thin to diversify across, which is why `data/top_traders.json`
-carries Tier A at weight 1.0 and the best eight of Tier B at 0.5.
+Four leaders is still thin, so `data/top_traders.json` carries Tier A at weight
+1.0 and the best eight of Tier B at 0.5.
+
+The staleness bar is `MAX_DAYS_SINCE_LAST_TRADE = 10`. It started at 3, which
+excluded gopfan2 — the best wallet in the sample — by 0.7 days. A daily trader
+can take a long weekend; the filter is meant to catch abandoned wallets, not
+punish a gap.
 
 A note on the activity metric: the trade feed is newest-first and capped, so for
 very active wallets it only covers a recent window. Measuring "days active out of

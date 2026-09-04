@@ -1,5 +1,5 @@
 {
- "generated": "2026-09-04T05:18:34.331443+00:00",
+ "generated": "2026-09-04T05:27:26.283827+00:00",
  "criteria": {
   "min_account_age_days": 730,
   "min_active_day_ratio": 0.8,
@@ -7,6 +7,20 @@
   "note": "Tier A meets the 2-year account-age bar; Tier B meets every other bar but has a younger account, and rides at half weight."
  },
  "traders": [
+  {
+   "wallet": "0xf2f6af4f27ec2dcf4072095ab804016e14cd5817",
+   "name": "gopfan2",
+   "weight": 1.0,
+   "_tier": "A",
+   "_first_trade": "2024-08-21",
+   "_account_age_days": 744.1,
+   "_active_day_ratio": 0.814,
+   "_window_days": 740.4,
+   "_weather_trades": 1386,
+   "_weather_pnl": 112828.22,
+   "_weather_roi": 0.1094,
+   "_weather_win_rate": 0.637
+  },
   {
    "wallet": "0x44c1dfe43260c94ed4f1d00de2e1f80fb113ebc1",
    "name": "aenews2",
@@ -20,6 +34,20 @@
    "_weather_pnl": 35859.9,
    "_weather_roi": 0.0113,
    "_weather_win_rate": 0.787
+  },
+  {
+   "wallet": "0xaa7a74b8c754e8aacc1ac2dedb699af0a3224d23",
+   "name": "securebet",
+   "weight": 1.0,
+   "_tier": "A",
+   "_first_trade": "2024-07-23",
+   "_account_age_days": 773.2,
+   "_active_day_ratio": 0.803,
+   "_window_days": 762.0,
+   "_weather_trades": 2828,
+   "_weather_pnl": 5664.33,
+   "_weather_roi": 0.0998,
+   "_weather_win_rate": 0.553
   },
   {
    "wallet": "0xa49b6ea0a604c581f2a9569db42c192b1c487054",
@@ -78,6 +106,20 @@
    "_weather_win_rate": 0.949
   },
   {
+   "wallet": "0x57ee70867b4e387de9de34fd62bc685aa02a8112",
+   "name": "HenryTheAtmoPhD",
+   "weight": 0.5,
+   "_tier": "B",
+   "_first_trade": "2025-02-20",
+   "_account_age_days": 560.7,
+   "_active_day_ratio": 0.852,
+   "_window_days": 555.0,
+   "_weather_trades": 5023,
+   "_weather_pnl": 13025.19,
+   "_weather_roi": 0.102,
+   "_weather_win_rate": 0.343
+  },
+  {
    "wallet": "0x6297b93ea37ff92a57fd636410f3b71ebf74517e",
    "name": "neobrother",
    "weight": 0.5,
@@ -132,20 +174,6 @@
    "_weather_pnl": 3260.36,
    "_weather_roi": 0.0314,
    "_weather_win_rate": 0.704
-  },
-  {
-   "wallet": "0xcbbc5e035504421b084ad9248b660f6e9618b5d0",
-   "name": "VibeTrader",
-   "weight": 0.5,
-   "_tier": "B",
-   "_first_trade": "2025-07-03",
-   "_account_age_days": 427.2,
-   "_active_day_ratio": 0.967,
-   "_window_days": 185.1,
-   "_weather_trades": 9941,
-   "_weather_pnl": 2895.77,
-   "_weather_roi": 0.0108,
-   "_weather_win_rate": 0.191
   }
  ]
 }
