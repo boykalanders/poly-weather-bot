@@ -45,6 +45,15 @@
     "neobrother": "0.25 copyable buys/day at 2.5% ROI",
     "Legend-": "15.1% headline ROI is entirely in $3 dust: 24 copyable trades ever, and they LOST $73"
    }
+  },
+  "market_class": {
+   "requirement": "copyable flow must be in DAILY city-temperature / rain markets",
+   "why": "Monthly climate markets (\"hottest month on record\", \"temperature increase C\") resolve off NOAA/NASA datasets weeks later. forecast_edge cannot price them and copying them locks capital for weeks.",
+   "example_rejected": {
+    "wallet": "0xa49b6ea0a604c581f2a9569db42c192b1c487054",
+    "name": "387411007415611814092217897387",
+    "why": "Oldest account in the sample (863d) and trades 99% of days, but 0% of its 58 copyable buys were daily weather - all were monthly climate markets. Last copyable buy 2026-07-29. Profit also concentrated: top 3 trades = 57%. Avg entry 0.836 with 88% win rate; bootstrap 95% CI on ROI +1.0%..+12.8%."
+   }
   }
  },
  "traders": [
@@ -70,7 +79,9 @@
    "_copyable_buys_per_day": 7.19,
    "_copyable_pnl": 14762.31,
    "_copyable_roi": 0.065,
-   "_copyable_win_rate": 0.545
+   "_copyable_win_rate": 0.545,
+   "_daily_weather_share": 0.978,
+   "_last_copyable_buy": "2026-09-04"
   },
   {
    "wallet": "0x6a8d1709bfb718d8555d315a983c4816278350f9",
@@ -94,7 +105,9 @@
    "_copyable_buys_per_day": 3.13,
    "_copyable_pnl": 1632.52,
    "_copyable_roi": 0.1124,
-   "_copyable_win_rate": 0.635
+   "_copyable_win_rate": 0.635,
+   "_daily_weather_share": 1.0,
+   "_last_copyable_buy": "2026-09-04"
   },
   {
    "wallet": "0xca1f9b9d67d947c8007d9814e8f9d6045cccd282",
@@ -118,7 +131,9 @@
    "_copyable_buys_per_day": 2.05,
    "_copyable_pnl": 1039.02,
    "_copyable_roi": 0.0918,
-   "_copyable_win_rate": 0.754
+   "_copyable_win_rate": 0.754,
+   "_daily_weather_share": 1.0,
+   "_last_copyable_buy": "2026-09-04"
   }
  ]
 }

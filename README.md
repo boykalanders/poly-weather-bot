@@ -230,6 +230,9 @@ other two are the strategy match: they essentially never sell, which is exactly
 how the bot mirrors them, and they carry the highest ROI and win rates. Together
 they emit roughly 12 copyable buys a day.
 
+All three trade **98–100% daily city-temperature markets** and all bought within
+the last day. That check matters more than it sounds — see below.
+
 Not selected, and why:
 
 - **ShyGuy1** — most copyable volume of anyone (2,397 trades) but only **2.2% ROI**
@@ -237,8 +240,16 @@ Not selected, and why:
   the slippage.
 - **Legend-** — 15.1% headline ROI, and it is entirely inside $3 dust trades. Of
   7,672 trades only **24** clear $50, and those **lost $73**.
-- **securebet** and **387411007…** — the two wallets with 2+ year accounts, but
-  they emit 0.22 and 0.51 copyable buys per day. One signal every two to five days.
+- **387411007…** — the trap case. Oldest account in the sample (863 days) and
+  trades on 99% of days, so it passes every headline filter. But **0% of its 58
+  copyable buys were daily weather** — every one was a *monthly climate* market
+  ("hottest month on record", "temperature increase °C") that resolves off NOAA
+  data weeks later. Its last copyable buy was 2026-07-29; since then it trades
+  daily only in sub-$50 dust. Profit is also three trades (top 3 = 57%), entered
+  at an average price of 0.836, with a bootstrapped 95% CI on ROI of just
+  +1.0%…+12.8%.
+- **securebet** — 2-year account and a genuine 17.3% buy-and-hold ROI, but only
+  0.22 copyable buys per day: one signal every 4.5 days.
 - **HenryTheAtmoPhD**, **neobrother** — same problem, too sparse to matter.
 
 This surfaces a real tension worth stating plainly: **the wallets old enough to
