@@ -118,6 +118,7 @@ Switching mode auto-disarms.
 python research/01_fetch_events.py      # all 12k weather events -> data/weather_events.json
 python research/02_find_candidates.py   # sample markets, collect wallets -> data/candidates.json
 python research/03_profile_traders.py   # full history per wallet -> data/top_traders.json
+python research/04_classify_traders.py  # strip institution-style wallets
 ```
 
 `03` computes, per wallet: account age from its first-ever trade, the share of
@@ -178,17 +179,36 @@ Of the 150 profiled:
 | `0xaa7a74b8…24d23` | securebet | 2024-07-23 | 80% | 2,828 | $5,664 | 10.0% | 55% |
 | `0xa49b6ea0…87054` | 3874110074…| 2024-04-24 | 99% | 1,328 | $3,753 | 7.0% | 51% |
 
-**Tier B** — same bar, younger account (half weight in the leader file):
-opopv2, ShyGuy1, meropi, HenryTheAtmoPhD, neobrother, OnlyLuckNoBrain, Legend-,
-KickstandBot.
+**Tier B** — same bar, younger account (half weight in the leader file).
 
-Four leaders is still thin, so `data/top_traders.json` carries Tier A at weight
-1.0 and the best eight of Tier B at 0.5.
+### Removing institution-style traders
 
-The staleness bar is `MAX_DAYS_SINCE_LAST_TRADE = 10`. It started at 3, which
-excluded gopfan2 — the best wallet in the sample — by 0.7 days. A daily trader
-can take a long weekend; the filter is meant to catch abandoned wallets, not
-punish a gap.
+Scale separates cleanly in this data. Average ticket runs $4,445 / $744 / $492
+and then falls off a cliff to $77, and those same three wallets are the only ones
+above $1M of weather notional. They are desks, not individuals, and
+`04_classify_traders.py` removes them outright:
+
+| Removed | Notional | Ticket | ROI | Why |
+|---|---|---|---|---|
+| aenews2 | $3.2M | $4,445 | 1.1% | desk-scale ticket, thin margin on huge volume |
+| meropi | $2.3M | $492 | 0.6% | same shape |
+| gopfan2 | $1.0M | $744 | 10.9% | desk-scale ticket and >$1M notional |
+
+Dropping gopfan2 costs the highest raw PnL in the sample ($112,828), which is
+the point: that PnL comes from size we cannot mirror, not from an edge we can.
+
+A second, separate test is about *strategy fit* rather than size. `copy_trader`
+mirrors BUY legs and holds to resolution, so a wallet that sells out of most of
+its positions is not doing what we would be doing. Those wallets are not
+discarded — they still carry information — but ride at half weight:
+
+| Halved | Sell share |
+|---|---|
+| securebet | 53% |
+| 387411007… | 42% |
+
+The remaining nine leaders all trade retail-scale tickets ($3–$77) and are
+predominantly buy-and-hold.
 
 A note on the activity metric: the trade feed is newest-first and capped, so for
 very active wallets it only covers a recent window. Measuring "days active out of
@@ -218,7 +238,7 @@ polyweather/
   store/db.py               sqlite: trades, positions, daily counters
   tg/       app.py          command handlers
             notifier.py     thread -> asyncio bridge for alerts
-research/                   trader discovery scripts
+research/                   trader discovery + style classification
 deploy/   install-ubuntu.sh, polyweather.service
 tests/                      bucket maths, sizing, risk limits
 ```
