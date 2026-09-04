@@ -119,6 +119,7 @@ python research/01_fetch_events.py      # all 12k weather events -> data/weather
 python research/02_find_candidates.py   # sample markets, collect wallets -> data/candidates.json
 python research/03_profile_traders.py   # full history per wallet -> data/top_traders.json
 python research/04_classify_traders.py  # strip institution-style wallets
+python research/05_select_leaders.py    # shortlist by copyable signal quality
 ```
 
 `03` computes, per wallet: account age from its first-ever trade, the share of
@@ -210,13 +211,44 @@ discarded — they still carry information — but ride at half weight:
 The remaining nine leaders all trade retail-scale tickets ($3–$77) and are
 predominantly buy-and-hold.
 
-A note on the activity metric: the trade feed is newest-first and capped, so for
-very active wallets it only covers a recent window. Measuring "days active out of
-the last 365" against a truncated window scores the *most* active traders lowest,
-so the ratio is computed over the window actually observed
-(`active_day_ratio_window`), requiring ≥60 days of span.
+### The final three
 
----
+Ranking on lifetime PnL is the wrong test for a copy bot. The bot ignores leader
+trades under `COPY_MIN_LEADER_NOTIONAL` ($50), and most of these wallets average
+$3–$43 a ticket — so a wallet can look excellent and still emit no signal we can
+act on. `05_select_leaders.py` therefore ranks on trades that clear that filter,
+and on the PnL of *those specific trades*:
+
+| Leader | Weight | Copyable buys/day | PnL on those | ROI | Win | Sells |
+|---|---|---|---|---|---|---|
+| **opopv2** | 1.00 | 7.19 | $14,762 | 6.5% | 55% | 23% |
+| **OnlyLuckNoBrain** | 1.00 | 3.13 | $1,633 | 11.2% | 64% | 1% |
+| **KickstandBot** | 0.75 | 2.05 | $1,039 | 9.2% | 75% | 0% |
+
+opopv2 is the workhorse — most usable signal with a real edge behind it. The
+other two are the strategy match: they essentially never sell, which is exactly
+how the bot mirrors them, and they carry the highest ROI and win rates. Together
+they emit roughly 12 copyable buys a day.
+
+Not selected, and why:
+
+- **ShyGuy1** — most copyable volume of anyone (2,397 trades) but only **2.2% ROI**
+  on them. We enter at the ask after they fill, so a 2.2% edge does not survive
+  the slippage.
+- **Legend-** — 15.1% headline ROI, and it is entirely inside $3 dust trades. Of
+  7,672 trades only **24** clear $50, and those **lost $73**.
+- **securebet** and **387411007…** — the two wallets with 2+ year accounts, but
+  they emit 0.22 and 0.51 copyable buys per day. One signal every two to five days.
+- **HenryTheAtmoPhD**, **neobrother** — same problem, too sparse to matter.
+
+This surfaces a real tension worth stating plainly: **the wallets old enough to
+satisfy the two-year bar are not the wallets that produce usable copy signal.**
+The daily weather markets are ~9 months old, so the traders who live in them
+arrived recently. The three selected accounts are 107–198 days old. If the
+two-year requirement is the hard constraint, copy trading should be turned off
+(`ENABLE_COPY_TRADING=false`) and the bot run on `forecast_edge` alone.
+
+A note on the activity metric---
 
 ## Layout
 
