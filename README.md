@@ -211,46 +211,65 @@ discarded — they still carry information — but ride at half weight:
 The remaining nine leaders all trade retail-scale tickets ($3–$77) and are
 predominantly buy-and-hold.
 
-### The final three
+### The selected leaders
 
 Ranking on lifetime PnL is the wrong test for a copy bot. The bot ignores leader
 trades under `COPY_MIN_LEADER_NOTIONAL` ($50), and most of these wallets average
 $3–$43 a ticket — so a wallet can look excellent and still emit no signal we can
 act on. `05_select_leaders.py` therefore ranks on trades that clear that filter,
-and on the PnL of *those specific trades*:
+simulating exactly what the bot does: mirror BUYs and hold to resolution.
 
-| Leader | Weight | Copyable buys/day | PnL on those | ROI | Win | Sells |
-|---|---|---|---|---|---|---|
-| **opopv2** | 1.00 | 7.19 | $14,762 | 6.5% | 55% | 23% |
-| **OnlyLuckNoBrain** | 1.00 | 3.13 | $1,633 | 11.2% | 64% | 1% |
-| **KickstandBot** | 0.75 | 2.05 | $1,039 | 9.2% | 75% | 0% |
+Two leaders are configured, chosen by the operator:
 
-opopv2 is the workhorse — most usable signal with a real edge behind it. The
-other two are the strategy match: they essentially never sell, which is exactly
-how the bot mirrors them, and they carry the highest ROI and win rates. Together
-they emit roughly 12 copyable buys a day.
+| Leader | Weight | Copied buys | Hold-to-resolution ROI | Win | Sells | Daily-weather | Copyable span |
+|---|---|---|---|---|---|---|---|
+| **KickstandBot** | 1.00 | 125 | 10.0% | 76% | 0% | 100% | 2026-08-25 → 09-04 (11 days) |
+| **securebet** | 1.00 | 98 | **17.3%** | 91% | 53% | 100% | 2025-02-07 → 2026-08-07 (68 days / 18 months) |
 
-All three trade **98–100% daily city-temperature markets** and all bought within
-the last day. That check matters more than it sounds — see below.
+They are complementary, and each has one weakness worth knowing:
 
-Not selected, and why:
+- **KickstandBot** is the active one — buying today, 0% sell share so it mirrors
+  the bot's hold-to-resolution behaviour exactly, ~2 copyable buys/day. But its
+  copyable flow only began 11 days ago; before that it traded sub-$50 dust.
+- **securebet** has the longest and best copyable record — 17.3% ROI across
+  18 months — and its 53% sell share turns out not to matter, because that 17.3%
+  *is* the return from holding its buys to resolution. But it has not made a
+  copyable buy since **2026-08-07**.
 
-- **ShyGuy1** — most copyable volume of anyone (2,397 trades) but only **2.2% ROI**
-  on them. We enter at the ask after they fill, so a 2.2% edge does not survive
-  the slippage.
-- **Legend-** — 15.1% headline ROI, and it is entirely inside $3 dust trades. Of
-  7,672 trades only **24** clear $50, and those **lost $73**.
-- **387411007…** — the trap case. Oldest account in the sample (863 days) and
-  trades on 99% of days, so it passes every headline filter. But **0% of its 58
-  copyable buys were daily weather** — every one was a *monthly climate* market
-  ("hottest month on record", "temperature increase °C") that resolves off NOAA
-  data weeks later. Its last copyable buy was 2026-07-29; since then it trades
-  daily only in sub-$50 dust. Profit is also three trades (top 3 = 57%), entered
-  at an average price of 0.836, with a bootstrapped 95% CI on ROI of just
-  +1.0%…+12.8%.
-- **securebet** — 2-year account and a genuine 17.3% buy-and-hold ROI, but only
-  0.22 copyable buys per day: one signal every 4.5 days.
-- **HenryTheAtmoPhD**, **neobrother** — same problem, too sparse to matter.
+Net: expect roughly 2 copy signals a day, essentially all from KickstandBot.
+Keep `ENABLE_FORECAST_EDGE=true` — copy trading alone will trade rarely.
+
+### Why headline win rate is the wrong metric here
+
+These are temperature *ladders*, and traders buy 1.3–2.8 buckets per event, so
+most legs lose by construction. Simulating what the bot actually does inverts
+the ranking almost completely:
+
+| Leader | Headline win | Bot win | Bot ROI |
+|---|---|---|---|
+| securebet | 55% | 91% | 17.3% |
+| KickstandBot | 70% | 76% | 10.0% |
+| opopv2 | 28% | 58% | 7.9% |
+| **Legend-** | 16% | **90%** | **−1.5%** |
+
+Legend- is the cautionary case: it wins **nine trades in ten and still loses
+money**, because it buys near-certainties at ~0.96. Win rate without entry price
+says nothing.
+
+### Rejected leaders worth recording
+
+- **387411007…** — the trap. Oldest account in the sample (863 days), trades on
+  99% of days, so it passes every headline filter. But **0% of its 58 copyable
+  buys were daily weather** — all were *monthly climate* markets ("hottest month
+  on record", "temperature increase °C") resolving off NOAA data weeks later,
+  which `forecast_edge` cannot price. Last copyable buy 2026-07-29. Profit was
+  also three trades (top 3 = 57%), entered at an average price of 0.836, with a
+  bootstrapped 95% CI on ROI of just +1.0%…+12.8%.
+- **ShyGuy1** — most copyable volume of anyone (2,397) but 2.2% ROI on them; we
+  enter at the ask after the leader fills, so that does not survive slippage.
+- **Legend-** — 15.1% headline ROI entirely inside $3 dust: 24 of 7,672 trades
+  clear $50, and those lost $73.
+- **aenews2 / meropi / gopfan2** — institution-style, removed on scale (see above).
 
 This surfaces a real tension worth stating plainly: **the wallets old enough to
 satisfy the two-year bar are not the wallets that produce usable copy signal.**
