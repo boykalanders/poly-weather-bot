@@ -1,7 +1,12 @@
 """Copy-trading strategy.
 
-Mirrors, at a scaled-down size, the weather-market trades of the wallets listed
-in `data/top_traders.json`.
+Mirrors, at a scaled-down size, the weather-market trades of a configured set of
+leader wallets.
+
+Leaders come from `COPY_WALLETS` in .env, falling back to
+`data/top_traders.json` when that is empty.  The .env file is re-read on every
+load rather than trusted from process start, so /reload picks up an edit without
+a restart.
 
 Two hard rules keep this honest:
   * only weather markets are mirrored, even if a leader trades everything else;
@@ -12,8 +17,13 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import re
 import time
 from dataclasses import dataclass
+from pathlib import Path
+
+from dotenv import dotenv_values
 
 from ..clients.clob import ClobClient
 from ..clients.dataapi import DataClient, Trade
@@ -50,19 +60,91 @@ class Leader:
         )
 
 
+_RE_WALLET = re.compile(r"^0x[0-9a-fA-F]{40}$")
+
+
+def parse_wallet_spec(spec: str) -> Leader | None:
+    """Parse one `wallet[:name][:weight]` entry.
+
+    The middle field is optional, so `0xabc:0.5` is read as a weight rather than
+    a wallet named "0.5".
+    """
+    parts = [p.strip() for p in spec.split(":") if p.strip()]
+    if not parts:
+        return None
+
+    wallet = parts[0].lower()
+    if not _RE_WALLET.match(wallet):
+        log.error("ignoring leader %r: not a 0x-prefixed 40-hex address", spec)
+        return None
+
+    name, weight = "", 1.0
+    rest = parts[1:]
+    if rest:
+        try:                       # `wallet:weight`
+            weight = float(rest[-1])
+            rest = rest[:-1]
+        except ValueError:
+            pass
+        if rest:
+            name = rest[0]
+    if weight <= 0:
+        log.error("ignoring leader %s: weight %s must be positive", wallet, weight)
+        return None
+
+    return Leader(wallet=wallet, label=name or wallet[:10], weight=weight)
+
+
+def _env_copy_wallets() -> str:
+    """Read COPY_WALLETS, preferring the .env file on disk over the value that
+    was loaded at process start, so /reload sees edits immediately."""
+    env_path = Path(settings.model_config.get("env_file") or "")
+    if env_path.is_file():
+        value = (dotenv_values(env_path) or {}).get("COPY_WALLETS")
+        if value is not None:
+            return value
+    return os.environ.get("COPY_WALLETS", settings.copy_wallets)
+
+
+def leader_source_is_env() -> bool:
+    """True when COPY_WALLETS is driving the leader list."""
+    return bool((_env_copy_wallets() or "").strip())
+
+
 def load_leaders(path=None) -> list[Leader]:
+    """Leaders from COPY_WALLETS, else from the JSON file."""
+    raw_spec = (_env_copy_wallets() or "").strip()
+    if raw_spec:
+        leaders: list[Leader] = []
+        seen: set[str] = set()
+        for chunk in raw_spec.replace(chr(10), ",").split(","):
+            chunk = chunk.strip()
+            if not chunk or chunk.startswith("#"):
+                continue
+            ld = parse_wallet_spec(chunk)
+            if ld and ld.wallet not in seen:
+                seen.add(ld.wallet)
+                leaders.append(ld)
+        if leaders:
+            log.info("loaded %d leader(s) from COPY_WALLETS", len(leaders))
+            return leaders
+        log.error("COPY_WALLETS is set but no valid wallet parsed -- copy trading idle")
+        return []
+
     path = path or settings.copy_wallets_file
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
     except FileNotFoundError:
-        log.warning("no leader file at %s -- copy trading idle", path)
+        log.warning("COPY_WALLETS empty and no leader file at %s -- copy trading idle", path)
         return []
     except (ValueError, OSError) as e:
         log.error("cannot read leader file %s: %s", path, e)
         return []
 
     rows = raw.get("traders", raw) if isinstance(raw, dict) else raw
-    return [ld for ld in (Leader.parse(r) for r in rows) if ld.wallet]
+    leaders = [ld for ld in (Leader.parse(r) for r in rows) if ld.wallet]
+    log.info("loaded %d leader(s) from %s", len(leaders), path)
+    return leaders
 
 
 class CopyTraderStrategy(Strategy):

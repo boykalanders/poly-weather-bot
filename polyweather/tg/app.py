@@ -17,6 +17,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 
 from ..config import settings
 from ..engine.bot import TradingBot
+from ..strategy.copy_trader import leader_source_is_env
 from .notifier import Notifier
 
 log = logging.getLogger(__name__)
@@ -46,12 +47,18 @@ HELP = """*Polymarket Weather Bot*
 /set edge 0.06 – minimum edge to trade
 /set copyscale 0.05 – fraction of leader size to mirror
 /config – show current settings
-/reload – re-read the leader wallet file
+/reload – re-read COPY_WALLETS from .env
 """
 
 
 def _esc(s) -> str:
     return html.escape(str(s))
+
+
+def _leader_source() -> str:
+    """Where the current leader list came from, for the operator's benefit."""
+    return ("COPY_WALLETS in .env" if leader_source_is_env()
+            else str(settings.copy_wallets_file))
 
 
 def restricted(fn):
@@ -211,13 +218,16 @@ class TelegramApp:
         if not leaders:
             await update.effective_message.reply_text(
                 "No leader wallets loaded.\n"
-                f"Expected file: {settings.copy_wallets_file}"
+                "Set COPY_WALLETS in .env, then send /reload.\n"
+                f"Current source: {_leader_source()}"
             )
             return
-        lines = [f"<b>Following {len(leaders)} wallet(s)</b>"]
+        lines = [f"<b>Following {len(leaders)} wallet(s)</b>",
+                 f"<i>from {_esc(_leader_source())}</i>", ""]
         for ld in leaders:
             lines.append(f"• {_esc(ld.label)} — <code>{_esc(ld.wallet)}</code> ×{ld.weight:g}")
-        lines.append(f"\nMirroring {settings.copy_scale:.1%} of leader notional.")
+        lines += ["", f"Mirroring {settings.copy_scale:.1%} of leader notional.",
+                  "Edit COPY_WALLETS in .env, then /reload, to change this list."]
         await update.effective_message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
 
     # ---------------------------------------------------------------- control
@@ -351,4 +361,15 @@ class TelegramApp:
     @restricted
     async def cmd_reload(self, update: Update, _ctx) -> None:
         n = self.bot.copier.reload_leaders()
-        await update.effective_message.reply_text(f"Reloaded {n} leader wallet(s).")
+        source = _leader_source()
+        if not n:
+            await update.effective_message.reply_text(
+                f"Reloaded from {source} — no valid wallets found.\n"
+                "Expected format: wallet[:name][:weight], comma separated."
+            )
+            return
+        names = ", ".join(f"{ld.label} ×{ld.weight:g}"
+                          for ld in self.bot.copier.leaders)
+        await update.effective_message.reply_text(
+            f"Reloaded {n} leader wallet(s) from {source}:\n{names}"
+        )

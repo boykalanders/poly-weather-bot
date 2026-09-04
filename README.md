@@ -8,7 +8,7 @@ Two strategies:
 | Strategy | Idea |
 |---|---|
 | **forecast_edge** | Build a probability distribution over the day's high/low from an 82-member multi-model weather ensemble (GFS + ECMWF), compare against the order book, and buy buckets the market has underpriced. |
-| **copy_trader** | Mirror, at scaled-down size, the weather-market buys of the wallets in `data/top_traders.json`. |
+| **copy_trader** | Mirror, at scaled-down size, the weather-market buys of leader wallets you list in `.env`. |
 
 **It starts in paper mode and refuses to place a live order until you `/arm` it.**
 
@@ -116,18 +116,38 @@ Switching mode auto-disarms.
 
 ## Copy-trade leaders
 
-`data/top_traders.json` holds the wallets `copy_trader` follows. Edit it and send
-`/reload` in Telegram — no restart needed. Format:
+Managed entirely in `.env`. Add, remove or re-weight a wallet, then send
+`/reload` in Telegram — no restart, no redeploy.
 
-```json
-{"traders": [{"wallet": "0x…", "name": "label", "weight": 1.0}]}
+```ini
+COPY_WALLETS=0xca1f9b9d...cd282:KickstandBot:1.0,0xaa7a74b8...24d23:securebet:1.0
 ```
 
-`weight` scales `COPY_SCALE` for that wallet. Fields prefixed `_` are notes and
-are ignored by the bot.
+Format is `wallet[:name][:weight]`, comma separated:
 
-Currently configured, selected from 120,046 wallets seen across Polymarket's
-full weather history (12,296 events / 126,691 markets):
+| Entry | Meaning |
+|---|---|
+| `0xabc...123` | follow at full weight, labelled by address |
+| `0xabc...123:whale` | named, full weight |
+| `0xabc...123:whale:0.5` | named, half size |
+| `0xabc...123:0.5` | weight only, no name |
+
+`weight` multiplies `COPY_SCALE` for that wallet, so `0.5` mirrors half as much.
+Addresses are case-insensitive, whitespace is trimmed, duplicates are dropped,
+and entries starting with `#` are ignored.
+
+An invalid entry is logged and skipped. If *every* entry is invalid the bot
+follows **no one** rather than falling back to the JSON file — a typo must never
+resurrect wallets you thought you had removed. `/reload` tells you what it
+loaded, and `/leaders` shows the active list and where it came from.
+
+Leave `COPY_WALLETS` empty to fall back to `data/top_traders.json`, which uses
+`{"traders": [{"wallet": "0x…", "name": "…", "weight": 1.0}]}`.
+
+### Currently configured
+
+Selected from 120,046 wallets seen across Polymarket's full weather history
+(12,296 events / 126,691 markets):
 
 | Leader | Copied buys | Hold-to-resolution ROI | Win | Sells | Daily-weather |
 |---|---|---|---|---|---|
@@ -138,7 +158,7 @@ Both trade only daily city-temperature markets. The metrics come from simulating
 what the bot actually does — mirror BUYs over `COPY_MIN_LEADER_NOTIONAL` and hold
 to resolution — not from the wallets' headline stats, which rank very differently.
 
-Two caveats, also recorded in the file:
+Two caveats:
 
 - **KickstandBot** is the active side (~2 copyable buys/day, and a 0% sell share
   so it matches the bot's hold-to-resolution behaviour exactly), but its copyable

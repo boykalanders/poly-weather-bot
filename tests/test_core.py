@@ -1,5 +1,6 @@
 """Tests for the pieces where a silent bug costs money: bucket maths, sizing,
 risk limits, and slug parsing."""
+import json
 import math
 import sys
 import tempfile
@@ -13,7 +14,9 @@ import pytest  # noqa: E402
 from polyweather.config import settings  # noqa: E402
 from polyweather.engine.risk import RiskManager  # noqa: E402
 from polyweather.store.db import Store  # noqa: E402
-from polyweather.strategy.copy_trader import is_weather_event  # noqa: E402
+from polyweather.strategy.copy_trader import (  # noqa: E402
+    is_weather_event, load_leaders, parse_wallet_spec,
+)  # noqa: E402
 from polyweather.strategy.forecast_edge import (  # noqa: E402
     event_kind, event_target_date, market_unit,
 )
@@ -109,6 +112,81 @@ def test_is_weather_event():
     assert is_weather_event("highest-temperature-in-nyc-on-september-3-2026")
     assert is_weather_event("where-will-it-rain-on-september-3-2026")
     assert not is_weather_event("will-the-fed-cut-rates-in-september")
+
+
+# ------------------------------------------------- COPY_WALLETS parsing
+W = "0xca1f9b9d67d947c8007d9814e8f9d6045cccd282"
+
+
+def test_wallet_spec_bare_address():
+    ld = parse_wallet_spec(W)
+    assert ld.wallet == W and ld.weight == 1.0
+
+
+def test_wallet_spec_name_and_weight():
+    ld = parse_wallet_spec(f"{W}:KickstandBot:0.75")
+    assert (ld.label, ld.weight) == ("KickstandBot", 0.75)
+
+
+def test_wallet_spec_weight_without_name():
+    """`0xabc:0.5` is a weight, not a wallet nicknamed '0.5'."""
+    ld = parse_wallet_spec(f"{W}:0.5")
+    assert ld.weight == 0.5 and ld.label == W[:10]
+
+
+def test_wallet_spec_is_case_insensitive_and_trimmed():
+    assert parse_wallet_spec(f"  {W.upper()}  ").wallet == W
+
+
+def test_wallet_spec_rejects_bad_input():
+    assert parse_wallet_spec("0xnothex") is None
+    assert parse_wallet_spec("") is None
+    assert parse_wallet_spec("   ") is None
+    assert parse_wallet_spec(f"{W}:name:-1") is None      # non-positive weight
+    assert parse_wallet_spec(f"{W}:name:0") is None
+    assert parse_wallet_spec(W[:-1]) is None              # 39 hex chars
+
+
+def test_env_wallets_parsed_and_deduped(monkeypatch, tmp_path):
+    # point the loader away from any real .env so os.environ is authoritative
+    monkeypatch.setitem(settings.model_config, "env_file", tmp_path / "absent.env")
+    other = "0xaa7a74b8c754e8aacc1ac2dedb699af0a3224d23"
+    monkeypatch.setenv("COPY_WALLETS", f"{W}:a:1.0, {other}:b:0.5, {W}:dupe:2.0")
+    leaders = load_leaders()
+    assert [(l.label, l.weight) for l in leaders] == [("a", 1.0), ("b", 0.5)]
+
+
+def test_env_wallets_skip_comments_and_blanks(monkeypatch, tmp_path):
+    monkeypatch.setitem(settings.model_config, "env_file", tmp_path / "absent.env")
+    monkeypatch.setenv("COPY_WALLETS", f"# note,, {W}:solo, ")
+    assert [l.label for l in load_leaders()] == ["solo"]
+
+
+def test_env_wallets_all_invalid_yields_no_leaders(monkeypatch, tmp_path):
+    """A typo must not silently fall back to the JSON file -- that would trade
+    wallets the operator thought they had removed."""
+    monkeypatch.setitem(settings.model_config, "env_file", tmp_path / "absent.env")
+    monkeypatch.setenv("COPY_WALLETS", "0xtypo, alsobad")
+    assert load_leaders() == []
+
+
+def test_falls_back_to_json_when_env_empty(monkeypatch, tmp_path):
+    monkeypatch.setitem(settings.model_config, "env_file", tmp_path / "absent.env")
+    monkeypatch.delenv("COPY_WALLETS", raising=False)
+    monkeypatch.setattr(settings, "copy_wallets", "")
+    f = tmp_path / "leaders.json"
+    f.write_text(json.dumps({"traders": [{"wallet": W, "name": "fromfile"}]}))
+    assert [l.label for l in load_leaders(f)] == ["fromfile"]
+
+
+def test_env_file_beats_process_environment(monkeypatch, tmp_path):
+    """Editing .env must take effect on /reload without a restart, so the file
+    on disk wins over whatever was loaded into the environment at startup."""
+    env = tmp_path / ".env"
+    env.write_text(f"COPY_WALLETS={W}:fromfile:1.0\n")
+    monkeypatch.setitem(settings.model_config, "env_file", env)
+    monkeypatch.setenv("COPY_WALLETS", "0xdeadbeef")   # stale, must be ignored
+    assert [l.label for l in load_leaders()] == ["fromfile"]
 
 
 # -------------------------------------------------------------------- risk

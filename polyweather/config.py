@@ -63,6 +63,12 @@ class Settings(BaseSettings):
     min_market_volume: float = 2000.0
 
     # ---------- copy strategy ----------
+    # Leaders to mirror, managed directly in .env.  One entry per wallet,
+    # comma separated, each `wallet[:name][:weight]`:
+    #   COPY_WALLETS=0xabc…:KickstandBot:1.0, 0xdef…:securebet:0.5
+    # Name and weight are optional. When this is empty the bot falls back to
+    # `copy_wallets_file`.
+    copy_wallets: str = ""
     copy_wallets_file: Path = ROOT / "data" / "top_traders.json"
     copy_scale: float = 0.05         # mirror 5% of the leader's notional
     copy_max_age_sec: int = 900      # ignore trades older than this
