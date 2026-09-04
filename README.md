@@ -109,6 +109,17 @@ bot is allowed to size a trade.
 - `KELLY_FRACTION` — fractional Kelly sizing (0.25 default; 1.0 would be reckless)
 - `/kill` — engages the kill switch and cancels all resting orders
 
+**Minimum order size.** `MIN_ORDER_USDC` (default $1) and `MIN_ORDER_SHARES`
+(default 5) are the venue's floors. An order sized below either is **rounded up
+to the minimum, not skipped** — with `COPY_SCALE=0.05`, a $200 leader trade
+mirrors to $10, but a $20 one mirrors to $1.00 of dust that would otherwise be
+dropped silently, leaving copy trading looking alive while placing nothing.
+
+Which floor binds depends on price: at $0.02 a share the $1 notional needs 50
+shares; at $0.90 the 5-share floor already implies $4.50. Rounding up never
+overrides a risk limit — if the minimum order would breach the per-market or
+daily cap, it is refused with a logged reason instead.
+
 Live mode has two independent gates: `TRADING_MODE=live` **and** `/arm`.
 Switching mode auto-disarms.
 

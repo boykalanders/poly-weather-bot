@@ -55,6 +55,14 @@ class Settings(BaseSettings):
     max_daily_loss_usdc: float = 75.0        # trips the kill switch
     kelly_fraction: float = 0.25             # fractional Kelly
 
+    # Venue minimums. An order sized below these is rounded UP to them rather
+    # than dropped -- a small COPY_SCALE against a modest leader trade lands
+    # under them routinely, and silently skipping those makes copy trading look
+    # alive while placing nothing. Risk caps still override: see
+    # RiskManager.size_order.
+    min_order_usdc: float = 1.0
+    min_order_shares: float = 5.0
+
     # ---------- forecast-edge strategy ----------
     min_edge: float = 0.06           # required |model_prob - price|
     min_price: float = 0.03          # avoid lottery tickets / dust

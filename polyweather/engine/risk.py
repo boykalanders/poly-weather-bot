@@ -88,28 +88,93 @@ class RiskManager:
             self.set_kill(True, f"daily loss limit hit ({today['realized_pnl']:.2f} USDC)")
             return RiskDecision(False, reason="daily loss limit")
 
-        remaining_day = settings.max_daily_notional_usdc - float(today["notional"])
-        if remaining_day <= 1.0:
+        remaining_day, remaining_mkt = self.remaining_budget(condition_id)
+        if remaining_day <= settings.min_order_usdc:
             return RiskDecision(False, reason="daily notional cap reached")
 
         if len(self.store.open_positions()) >= settings.max_open_positions:
             return RiskDecision(False, reason="max open positions reached")
 
-        already = self.store.position_cost(condition_id)
-        remaining_mkt = settings.max_position_usdc - already
-        if remaining_mkt <= 1.0:
+        if remaining_mkt <= settings.min_order_usdc:
             return RiskDecision(False, reason="per-market cap reached")
 
         stake = self.kelly_size(prob, price, settings.bankroll_usdc)
         stake = min(stake, remaining_day, remaining_mkt, settings.max_position_usdc)
-        if stake < 1.0:
-            return RiskDecision(False, reason=f"stake too small ({stake:.2f})")
+
+        return self.size_order(stake, price, available_size, remaining_day, remaining_mkt)
+
+    # -------------------------------------------------------------- sizing
+    def remaining_budget(self, condition_id: str) -> tuple[float, float]:
+        """(USDC left today, USDC left in this market) under the configured caps."""
+        today = self.store.today()
+        remaining_day = settings.max_daily_notional_usdc - float(today["notional"])
+        remaining_mkt = settings.max_position_usdc - self.store.position_cost(condition_id)
+        return remaining_day, remaining_mkt
+
+    def size_order(
+        self,
+        stake: float,
+        price: float,
+        available_size: float = 1e9,
+        remaining_day: float | None = None,
+        remaining_mkt: float | None = None,
+        condition_id: str | None = None,
+    ) -> RiskDecision:
+        """Turn a target USDC stake into an order, rounded up to the exchange
+        minimum.
+
+        A stake below the venue's minimum is not an error, it is dust -- a small
+        `COPY_SCALE` against a modest leader trade lands there routinely. Dropping
+        those silently means copy trading looks alive while placing nothing, so we
+        round the order up to the minimum instead.
+
+        The caps still win: rounding up is refused when the resulting order would
+        breach a per-market or daily limit, or exceed the depth on offer. A
+        minimum-size order is a floor on what we send, never a licence to exceed a
+        risk limit.
+        """
+        if not (0 < price < 1):
+            return RiskDecision(False, reason=f"invalid price {price}")
+
+        if remaining_day is None or remaining_mkt is None:
+            # Caller did not pre-compute the budget, so read it now rather than
+            # silently sizing against the full caps as if nothing had traded.
+            day, mkt = self.remaining_budget(condition_id or "")
+            remaining_day = day if remaining_day is None else remaining_day
+            remaining_mkt = mkt if remaining_mkt is None else remaining_mkt
+
+        cap = min(remaining_day, remaining_mkt, settings.max_position_usdc)
+        # Trim to what the caps allow before sizing, so an oversized request
+        # becomes a smaller order rather than no order.
+        stake = min(stake, cap)
 
         shares = stake / price
+        # Both floors matter and which one binds depends on the price: at $0.02
+        # a share the notional floor needs 50 shares, while at $0.90 the share
+        # floor already implies $4.50.
+        floor_shares = max(settings.min_order_shares, settings.min_order_usdc / price)
+        if shares < floor_shares:
+            log.info(
+                "rounding dust order up to the exchange minimum: "
+                "%.2f sh ($%.2f) -> %.2f sh ($%.2f)",
+                shares, stake, floor_shares, floor_shares * price,
+            )
+            shares = floor_shares
+            stake = shares * price     # only recompute when we actually rounded
+
         if shares > available_size:
-            shares = available_size
-            stake = shares * price
-        if stake < 1.0 or shares < 5.0:
-            return RiskDecision(False, reason="insufficient book depth")
+            return RiskDecision(
+                False,
+                reason=f"book too thin: need {shares:.1f} sh, {available_size:.1f} on offer",
+            )
+        # Only reachable when rounding UP to the venue minimum pushed the order
+        # past what the caps allow -- i.e. we cannot trade this market at all
+        # without breaching a limit. Tolerance absorbs the few ULPs that
+        # shares*price drifts above a cap it exactly equals.
+        if stake > cap + 1e-9:
+            return RiskDecision(
+                False,
+                reason=f"minimum order ${stake:.2f} exceeds remaining cap ${cap:.2f}",
+            )
 
         return RiskDecision(True, size_shares=round(shares, 2), notional=round(stake, 2))

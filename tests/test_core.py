@@ -252,6 +252,75 @@ def test_book_depth_limits_size(store):
     assert not r.check("0xabc", price=0.30, prob=0.90, available_size=1.0).ok
 
 
+# ------------------------------------------- exchange-minimum rounding
+def test_dust_order_is_rounded_up_to_the_minimum(store):
+    """A tiny COPY_SCALE against a modest leader trade produces sub-$1 dust.
+    That must become a minimum-size order, not a silent skip."""
+    r = RiskManager(store)
+    d = r.size_order(stake=0.05, price=0.20, condition_id="0xabc")
+    assert d.ok
+    assert d.notional >= settings.min_order_usdc
+    assert d.size_shares >= settings.min_order_shares
+
+
+def test_notional_floor_binds_at_low_prices(store):
+    """At $0.02 a share, 5 shares is only $0.10, so the $1 notional floor binds
+    and we must buy 50 shares."""
+    r = RiskManager(store)
+    d = r.size_order(stake=0.01, price=0.02, condition_id="0xabc")
+    assert d.ok
+    assert d.size_shares == pytest.approx(settings.min_order_usdc / 0.02)
+    assert d.notional == pytest.approx(settings.min_order_usdc)
+
+
+def test_share_floor_binds_at_high_prices(store):
+    """At $0.90 a share the $1 notional is met by 1.2 shares, so the 5-share
+    floor dominates and the order is $4.50."""
+    r = RiskManager(store)
+    d = r.size_order(stake=0.10, price=0.90, condition_id="0xabc")
+    assert d.ok
+    assert d.size_shares == pytest.approx(settings.min_order_shares)
+    assert d.notional == pytest.approx(settings.min_order_shares * 0.90)
+
+
+def test_exact_cap_is_not_rejected_by_float_drift(store):
+    """shares*price drifts a few ULPs above a cap it exactly equals; that must
+    not reject a legal full-size order."""
+    r = RiskManager(store)
+    d = r.check("0xabc", price=0.30, prob=0.60)
+    assert d.ok and d.notional == pytest.approx(settings.max_position_usdc)
+
+
+def test_rounding_up_never_breaches_the_per_market_cap(store):
+    """Rounding to the minimum is a floor on what we send, not permission to
+    exceed a risk limit."""
+    r = RiskManager(store)
+    d = r.size_order(stake=0.05, price=0.50, remaining_day=100.0, remaining_mkt=0.40)
+    assert not d.ok and "cap" in d.reason
+
+
+def test_rounding_up_never_exceeds_book_depth(store):
+    r = RiskManager(store)
+    d = r.size_order(stake=0.05, price=0.50, available_size=2.0, condition_id="0xabc")
+    assert not d.ok and "thin" in d.reason
+
+
+def test_size_order_rejects_degenerate_price(store):
+    r = RiskManager(store)
+    assert not r.size_order(stake=5.0, price=0.0, condition_id="0xabc").ok
+    assert not r.size_order(stake=5.0, price=1.0, condition_id="0xabc").ok
+
+
+def test_size_order_reads_budget_when_not_supplied(store):
+    """Called without explicit budgets it must consult the store, not size
+    against the full caps as though nothing had traded today."""
+    r = RiskManager(store)
+    store.record_trade(mode="paper", strategy="s", condition_id="0xabc",
+                       notional=settings.max_daily_notional_usdc, side="BUY",
+                       price=0.5, size=1)
+    assert not r.size_order(stake=5.0, price=0.50, condition_id="0xabc").ok
+
+
 # ------------------------------------------------------------------- store
 def test_resolve_position_books_pnl(store):
     store.upsert_position("tok", 100, 40.0, condition_id="0xa")

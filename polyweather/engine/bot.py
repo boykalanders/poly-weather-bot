@@ -76,11 +76,15 @@ class TradingBot:
                 scale = float(sig.meta.get("scale", settings.copy_scale))
                 target = float(sig.meta.get("leader_notional", 0)) * scale
                 target = min(target, decision.notional, settings.max_position_usdc)
-                if target < 1.0:
-                    continue
-                decision.notional = round(target, 2)
-                decision.size_shares = round(target / sig.price, 2)
-                if decision.size_shares < 5:
+                # Re-size through the risk manager so a scaled-down copy that
+                # lands below the venue minimum is rounded up rather than
+                # dropped -- and still refused if that breaches a cap.
+                decision = self.risk.size_order(
+                    target, sig.price, sig.available_size,
+                    condition_id=sig.condition_id,
+                )
+                if not decision.ok:
+                    log.info("skip copy %s: %s", sig.market, decision.reason)
                     continue
 
             ex = self.executor.execute(sig, decision)
