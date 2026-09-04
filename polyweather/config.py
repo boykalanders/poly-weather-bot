@@ -70,6 +70,21 @@ class Settings(BaseSettings):
     max_spread: float = 0.06         # skip illiquid books
     min_market_volume: float = 2000.0
 
+    # Model-disagreement guard. When the coarse ensemble and the high-resolution
+    # deterministic run disagree by more than
+    #   max(floor, ratio x ensemble_spread)
+    # the forecast is not trustworthy enough to trade, whichever run is right --
+    # the apparent "edge" is then mostly model error. Set the ratio to 0 to
+    # disable the guard entirely.
+    # Skip the market entirely when the independent deterministic models spread
+    # more than this. Miami 2026-09-06 was GFS 95.5F / ECMWF 83.2F / ICON 89.2F
+    # / GEM 91.7F: with 12F of real disagreement no bucket probability is honest.
+    max_model_spread_c: float = 2.0           # degrees C; scaled x1.8 for F
+    # And skip when our ensemble mean is itself the outlier versus the median of
+    # those models by more than max(floor, ratio x ensemble_spread).
+    model_disagreement_ratio: float = 0.5     # 0 disables both checks
+    model_disagreement_floor_c: float = 0.5   # degrees C; scaled x1.8 for F
+
     # ---------- copy strategy ----------
     # Leaders to mirror, managed directly in .env.  One entry per wallet,
     # comma separated, each `wallet[:name][:weight]`:

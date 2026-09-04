@@ -25,6 +25,38 @@ FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 # Multi-model ensemble: GFS (31 members) + ECMWF IFS (51 members).
 MODELS = "gfs025,ecmwf_ifs025"
 
+# Four independent deterministic models, fetched in a single request. Used to
+# measure how much genuine disagreement there is about a given day.
+DETERMINISTIC_MODELS = ("gfs_seamless", "ecmwf_ifs025", "icon_seamless", "gem_seamless")
+
+
+@dataclass
+class ModelConsensus:
+    """Deterministic daily extreme from several independent models."""
+    values: dict[str, float]
+
+    @property
+    def n(self) -> int:
+        return len(self.values)
+
+    @property
+    def median(self) -> float:
+        if not self.values:
+            return float("nan")
+        v = sorted(self.values.values())
+        mid = len(v) // 2
+        return v[mid] if len(v) % 2 else (v[mid - 1] + v[mid]) / 2
+
+    @property
+    def spread(self) -> float:
+        """Max minus min: how far apart the models are about this day."""
+        if self.n < 2:
+            return 0.0
+        return max(self.values.values()) - min(self.values.values())
+
+    def summary(self) -> str:
+        return ", ".join(f"{k.split('_')[0]} {v:.1f}" for k, v in sorted(self.values.items()))
+
 
 @dataclass
 class DailyEnsemble:
@@ -62,6 +94,7 @@ class OpenMeteoProvider:
                  min_interval: float = 0.6):
         self._c = httpx.Client(timeout=timeout, headers={"User-Agent": "poly-weather-bot/1.0"})
         self._cache: dict[tuple, tuple[float, dict]] = {}
+        self._det_cache: dict[tuple, tuple[float, dict]] = {}
         self._cache_ttl = cache_ttl
         self._lock = threading.Lock()
         # Pacing gate shared by every thread that touches Open-Meteo.
@@ -85,6 +118,7 @@ class OpenMeteoProvider:
     def clear_cache(self) -> None:
         with self._lock:
             self._cache.clear()
+            self._det_cache.clear()
 
     def _fetch_ensemble_hourly(self, city: City, unit: str, days: int) -> dict:
         params = {
@@ -153,6 +187,48 @@ class OpenMeteoProvider:
         if not members:
             log.warning("no ensemble data for %s on %s", city.name, target)
         return DailyEnsemble(city=city, day=day, unit=unit, members=members)
+
+    def model_consensus(
+        self, city: City, day: date, unit: str | None = None, kind: str = "max"
+    ) -> "ModelConsensus":
+        """Deterministic runs of four independent forecast models for `day`.
+
+        Deliberately not `best_match`: for US cities Open-Meteo resolves that to
+        GFS, so comparing the ensemble against it compares a multi-model
+        consensus to a single run that is often the outlier itself.  Miami on
+        2026-09-06 was GFS 95.5F, ECMWF 83.2F, ICON 89.2F, GEM 91.7F -- a 12F
+        spread in which no single number deserves to be called "the" forecast.
+
+        All four arrive in one request, so this costs one cached call per city.
+        """
+        unit = unit or city.unit
+        field = "temperature_2m_max" if kind == "max" else "temperature_2m_min"
+        key = (city.key, unit, field)
+        now = time.monotonic()
+        with self._lock:
+            hit = self._det_cache.get(key)
+            js = hit[1] if hit and now - hit[0] < self._cache_ttl else None
+        if js is None:
+            js = self._get_json(FORECAST_URL, {
+                "latitude": city.lat, "longitude": city.lon, "daily": field,
+                "timezone": city.tz, "forecast_days": 7,
+                "temperature_unit": "fahrenheit" if unit == "F" else "celsius",
+                "models": ",".join(DETERMINISTIC_MODELS),
+            })
+            with self._lock:
+                self._det_cache[key] = (now, js)
+
+        d = (js or {}).get("daily") or {}
+        try:
+            i = d["time"].index(day.isoformat())
+        except (KeyError, ValueError):
+            return ModelConsensus({})
+        values: dict[str, float] = {}
+        for model in DETERMINISTIC_MODELS:
+            col = d.get(f"{field}_{model}") or []
+            if i < len(col) and col[i] is not None:
+                values[model] = float(col[i])
+        return ModelConsensus(values)
 
     def precipitation(self, city: City, day: date) -> tuple[float, float]:
         """(mean precipitation-probability %, expected mm) for the local day."""

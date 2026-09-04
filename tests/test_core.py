@@ -18,13 +18,16 @@ from polyweather.strategy.copy_trader import (  # noqa: E402
     is_weather_event, load_leaders, parse_wallet_spec,
 )  # noqa: E402
 from polyweather.strategy.forecast_edge import (  # noqa: E402
-    event_kind, event_target_date, market_unit,
+    bucket_of, event_kind, event_target_date, forecast_is_untradeable,
+    market_unit,
 )
 from polyweather.weather.buckets import (  # noqa: E402
     bucket_distribution, bucket_probability, parse_bucket,
 )
 from polyweather.weather.cities import CITIES, city_from_slug  # noqa: E402
-from polyweather.weather.providers import DailyEnsemble  # noqa: E402
+from polyweather.weather.providers import (  # noqa: E402
+    DailyEnsemble, ModelConsensus,
+)
 
 
 # ----------------------------------------------------------------- buckets
@@ -106,6 +109,100 @@ def test_market_unit_prefers_label_over_city_default():
     assert market_unit(["24°C", "25°C"], CITIES["nyc"]) == "C"
     assert market_unit(["84°F"], CITIES["london"]) == "F"
     assert market_unit(["no unit here"], CITIES["nyc"]) == "F"
+
+
+# --------------------------------------------- forecast-quality guard
+def _mc(**vals):
+    return ModelConsensus(vals)
+
+
+def test_guard_blocks_when_models_genuinely_disagree():
+    """Miami 2026-09-06: GFS 95.5F, ECMWF 83.2F, ICON 89.2F, GEM 91.7F.
+    12F apart -- no bucket probability from any model is honest."""
+    reason = forecast_is_untradeable(
+        87.6, 1.97,
+        _mc(gfs_seamless=95.5, ecmwf_ifs025=83.2, icon_seamless=89.2, gem_seamless=91.7),
+        "F",
+    )
+    assert reason and "disagree" in reason
+
+
+def test_guard_blocks_when_our_ensemble_is_the_outlier():
+    reason = forecast_is_untradeable(
+        24.0, 0.5, _mc(gfs_seamless=26.0, ecmwf_ifs025=26.2, icon_seamless=26.1), "C"
+    )
+    assert reason and "outlier" in reason
+
+
+def test_guard_allows_agreeing_models():
+    assert forecast_is_untradeable(
+        21.7, 0.91, _mc(gfs_seamless=21.6, ecmwf_ifs025=21.9, icon_seamless=21.5), "C"
+    ) is None
+
+
+def test_guard_is_unit_aware():
+    """A 2 C spread limit is 3.6 F. The same physical disagreement must not be
+    blocked in Celsius and allowed in Fahrenheit."""
+    c_spread = _mc(a=20.0, b=22.5)                       # 2.5 C apart -> blocked
+    f_spread = _mc(a=68.0, b=72.5)                       # 4.5 F = 2.5 C -> blocked
+    assert forecast_is_untradeable(21.2, 0.5, c_spread, "C")
+    assert forecast_is_untradeable(70.2, 0.9, f_spread, "F")
+
+
+def test_guard_fails_open_without_enough_models():
+    """A missing cross-check must not silently halt all trading."""
+    assert forecast_is_untradeable(28.3, 0.53, ModelConsensus({}), "C") is None
+    assert forecast_is_untradeable(28.3, 0.53, _mc(gfs_seamless=30.0), "C") is None
+
+
+def test_guard_can_be_disabled(monkeypatch):
+    monkeypatch.setattr(settings, "model_disagreement_ratio", 0.0)
+    assert forecast_is_untradeable(
+        28.3, 0.53, _mc(a=40.0, b=41.0, c=42.0), "C"
+    ) is None
+
+
+def test_guard_blocks_bucket_disagreement_inside_the_degree_tolerance():
+    """Tel Aviv 2026-09-04: ensemble 32.61 vs model median 32.20 is only 0.41C,
+    inside the tolerance -- but they straddle the 32.5 rounding boundary, so we
+    say bucket 33 and 3 of 4 models say 32. The market priced 32 at 0.79."""
+    labels = ["28°C or below"] + [f"{t}°C" for t in range(29, 38)] + ["38°C or higher"]
+    reason = forecast_is_untradeable(
+        32.61, 0.65,
+        _mc(ecmwf_ifs025=33.3, gem_seamless=31.7, gfs_seamless=32.1, icon_seamless=32.3),
+        "C", labels,
+    )
+    assert reason and "bucket disagreement" in reason
+
+
+def test_bucket_agreement_is_allowed():
+    labels = ["28°C or below"] + [f"{t}°C" for t in range(29, 38)] + ["38°C or higher"]
+    assert forecast_is_untradeable(
+        32.1, 0.4, _mc(a=32.0, b=32.2, c=31.9, d=32.3), "C", labels
+    ) is None
+
+
+def test_bucket_check_is_skipped_without_labels():
+    """Same inputs that the bucket check rejects, minus the ladder: the degree
+    checks pass (median 32.4, gap 0.21) so nothing else should fire."""
+    mc = _mc(a=32.40, b=32.45, c=32.30)
+    labels = ["31°C", "32°C", "33°C"]
+    assert forecast_is_untradeable(32.61, 0.65, mc, "C", labels)      # with ladder
+    assert forecast_is_untradeable(32.61, 0.65, mc, "C", None) is None  # without
+
+
+def test_bucket_of_maps_open_ended_labels():
+    labels = ["28°C or below", "29°C", "30°C or higher"]
+    assert bucket_of(20.0, labels) == "28°C or below"
+    assert bucket_of(29.2, labels) == "29°C"
+    assert bucket_of(45.0, labels) == "30°C or higher"
+
+
+def test_consensus_median_and_spread():
+    mc = _mc(a=95.5, b=83.2, c=89.2, d=91.7)
+    assert mc.spread == pytest.approx(12.3)
+    assert mc.median == pytest.approx((89.2 + 91.7) / 2)
+    assert ModelConsensus({}).spread == 0.0
 
 
 def test_is_weather_event():

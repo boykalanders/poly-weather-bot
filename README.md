@@ -200,6 +200,35 @@ yet calibrated against outcomes.** Too narrow and the model manufactures huge
 fake edges on tail buckets. Run in paper mode long enough to compare
 `model_prob` against realised outcomes before going live.
 
+### Forecast-quality guards
+
+The first paper session produced seven trades with edges of +6.6% to +22.1%.
+Investigating them showed the ensemble was not competing against a mispriced
+market so much as against *other weather models*. Before trusting any edge, the
+ensemble is now cross-checked against four independent deterministic runs — GFS,
+ECMWF, ICON and GEM, fetched in a single cached request per city — and the
+market is skipped when:
+
+1. **Those models spread more than `MAX_MODEL_SPREAD_C`.** Miami on 2026-09-06
+   was GFS 95.5°F, ECMWF 83.2°F, ICON 89.2°F, GEM 91.7°F. With 12°F of genuine
+   disagreement, no bucket probability is honest.
+2. **Our ensemble mean is an outlier** versus the median of those runs.
+3. **We disagree about which *bucket* wins.** Degrees are the wrong unit here.
+   Tel Aviv on 2026-09-04: ensemble 32.61°C vs model median 32.20°C is a 0.41°
+   gap, well inside tolerance — but they straddle the 32.5 rounding boundary,
+   so we said bucket 33 while 3 of 4 models said 32 and the market priced 32 at
+   0.79. That one trade would have been booked as a +43-point edge.
+
+On a live scan of 286 events these removed 142 / 54 / 53 respectively, leaving
+3 signals instead of ~20.
+
+Note the reference is deliberately **not** Open-Meteo's `best_match`: in the US
+that resolves to GFS, which was itself the warm outlier in both the Miami and
+Houston cases.
+
+The guards remove forecasts we have no business pricing. They do **not** prove
+the surviving edges are real — only resolution data can.
+
 ---
 
 ## Layout
