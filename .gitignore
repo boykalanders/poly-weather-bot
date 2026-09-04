@@ -1,0 +1,9 @@
+data/*.json
+!data/top_traders.json
+.env
+.venv/
+logs/
+__pycache__/
+*.pyc
+*.sqlite3
+logs_*.txt

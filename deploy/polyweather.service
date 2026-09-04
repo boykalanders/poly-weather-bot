@@ -1,0 +1,47 @@
+[Unit]
+Description=Polymarket Weather Trading Bot
+Documentation=file:/opt/polyweather/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=polyweather
+Group=polyweather
+WorkingDirectory=/opt/polyweather
+EnvironmentFile=/opt/polyweather/.env
+ExecStart=/opt/polyweather/.venv/bin/python /opt/polyweather/main.py
+
+# Restart on crash, but give up if it is crash-looping -- a bot that cannot
+# stay up should stop rather than thrash against the exchange.
+Restart=on-failure
+RestartSec=15
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# Let the bot finish an in-flight order before dying.
+KillSignal=SIGINT
+TimeoutStopSec=30
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=polyweather
+
+# --- hardening: this process holds a private key ---
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+# Only these paths stay writable.
+ReadWritePaths=/opt/polyweather/data /opt/polyweather/logs
+
+[Install]
+WantedBy=multi-user.target
