@@ -9,9 +9,23 @@ from ..clients.clob import ClobClient
 from ..config import settings
 from ..store.db import Store
 from ..strategy.base import Signal
-from .risk import RiskDecision
+from .risk import RiskDecision, RiskManager
 
 log = logging.getLogger(__name__)
+
+# Failures the venue will return for every subsequent order too. Retrying these
+# once a scan achieves nothing except a traceback every 300s and a stream of
+# identical Telegram alerts -- and, for the geoblock, repeatedly re-requesting
+# an endpoint that has already refused us on compliance grounds.
+_PERMANENT = (
+    "trading restricted in your region",
+    "geoblock",
+)
+
+
+def _is_permanent(error: str) -> bool:
+    e = (error or "").lower()
+    return any(marker in e for marker in _PERMANENT)
 
 
 @dataclass
@@ -76,5 +90,15 @@ class Executor:
             log.info("executed %s %s %.1f@%.3f", mode, sig.market, shares, limit)
         else:
             log.error("execution failed: %s", error)
+            if _is_permanent(error):
+                # Not a bad order -- the venue is refusing this account outright.
+                # Stop the day rather than re-submitting every scan.
+                RiskManager(self.store).set_kill(
+                    True, "venue refused the order (see logs); trading stopped"
+                )
+                ex.error = (
+                    f"{error} -- this will not succeed on retry, so the kill "
+                    "switch is now engaged. Investigate before /revive."
+                )
 
         return ex
