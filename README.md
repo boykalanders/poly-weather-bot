@@ -74,8 +74,16 @@ For live trading:
 TRADING_MODE=live
 PRIVATE_KEY=0x...              # EOA controlling your Polymarket account
 FUNDER_ADDRESS=0x...           # your Polymarket deposit/proxy address
-SIGNATURE_TYPE=1               # 1 = email/magic wallet, 2 = browser wallet
+SIGNATURE_TYPE=1               # 1 = legacy proxy wallet, 2 = legacy safe wallet
 ```
+
+**Check your wallet type first.** Polymarket gives every account created since
+2026-05-04 a *Deposit Wallet* (type 3), and `py-clob-client` cannot sign for
+one — it only builds orders for types 0/1/2. Live trading therefore works only
+from a legacy Proxy or Safe wallet (or an allowlisted EOA). On
+`SIGNATURE_TYPE=3` the bot refuses to start, rather than accepting `/arm` and
+then failing every order. Paper mode is unaffected; supporting Deposit Wallets
+means porting `clients/clob.py` to Polymarket's newer `polymarket` SDK.
 
 `CLOB_API_KEY` / `CLOB_SECRET` / `CLOB_PASSPHRASE` are derived from the private
 key on first run — leave them blank.
