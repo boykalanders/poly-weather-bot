@@ -16,7 +16,14 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 echo "==> Installing system packages"
-apt-get update -qq
+# A broken third-party PPA (a certbot PPA with no `noble` release, say) makes
+# `apt-get update` exit non-zero and would abort the whole install under
+# `set -e`. That is somebody else's repo, not ours: warn and carry on, then let
+# apt-get install be the thing that actually fails if a package is missing.
+if ! apt-get update -qq; then
+  echo "    WARNING: apt-get update reported errors (likely an unrelated"
+  echo "    third-party repo in /etc/apt/sources.list.d). Continuing."
+fi
 apt-get install -y -qq python3 python3-venv python3-dev build-essential git ca-certificates
 
 PYVER=$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')

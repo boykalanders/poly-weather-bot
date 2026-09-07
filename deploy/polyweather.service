@@ -3,21 +3,26 @@ Description=Polymarket Weather Trading Bot
 Documentation=file:/opt/polyweather/README.md
 After=network-online.target
 Wants=network-online.target
+# Give up if it crash-loops -- a bot that cannot stay up should stop rather
+# than thrash against the exchange. These keys are only honoured in [Unit].
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
 User=polyweather
 Group=polyweather
 WorkingDirectory=/opt/polyweather
-EnvironmentFile=/opt/polyweather/.env
+# No EnvironmentFile: the bot loads /opt/polyweather/.env itself via
+# pydantic-settings. systemd does not strip inline `# comments` from values,
+# and environment variables outrank the .env file, so letting systemd parse it
+# turns `MAX_POSITION_USDC=25   # per market` into a startup ValidationError.
 ExecStart=/opt/polyweather/.venv/bin/python /opt/polyweather/main.py
 
 # Restart on crash, but give up if it is crash-looping -- a bot that cannot
 # stay up should stop rather than thrash against the exchange.
 Restart=on-failure
 RestartSec=15
-StartLimitIntervalSec=300
-StartLimitBurst=5
 
 # Let the bot finish an in-flight order before dying.
 KillSignal=SIGINT
