@@ -1,10 +1,8 @@
-"""Tests for the pieces where a silent bug costs money: bucket maths, sizing,
-risk limits, and slug parsing."""
+"""Tests for the pieces where a silent bug costs money: sizing, risk limits,
+leader parsing, and slug matching."""
 import json
-import math
 import sys
 import tempfile
-from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -17,194 +15,10 @@ from polyweather.store.db import Store  # noqa: E402
 from polyweather.strategy.copy_trader import (  # noqa: E402
     is_weather_event, load_leaders, parse_wallet_spec,
 )  # noqa: E402
-from polyweather.strategy.forecast_edge import (  # noqa: E402
-    bucket_of, event_kind, event_target_date, forecast_is_untradeable,
-    market_unit,
-)
-from polyweather.weather.buckets import (  # noqa: E402
-    bucket_distribution, bucket_probability, parse_bucket,
-)
-from polyweather.weather.cities import CITIES, city_from_slug  # noqa: E402
-from polyweather.weather.providers import (  # noqa: E402
-    DailyEnsemble, ModelConsensus,
-)
 
 
-# ----------------------------------------------------------------- buckets
-def test_parse_exact_bucket_is_half_open_around_rounding():
-    b = parse_bucket("24°C")
-    assert (b.lo, b.hi) == (23.5, 24.5)
 
-
-def test_parse_open_ended_buckets():
-    lo = parse_bucket("23°C or below")
-    hi = parse_bucket("33°C or higher")
-    assert lo.lo == -math.inf and lo.hi == 23.5
-    assert hi.lo == 32.5 and hi.hi == math.inf
-
-
-def test_parse_range_bucket():
-    b = parse_bucket("60-64°F")
-    assert (b.lo, b.hi) == (59.5, 64.5)
-
-
-def test_parse_rejects_non_temperature_labels():
-    assert parse_bucket("Yes") is None
-    assert parse_bucket("") is None
-
-
-def _ens(members, unit="C"):
-    return DailyEnsemble(city=CITIES["london"], day=date(2026, 9, 5), unit=unit, members=members)
-
-
-def test_bucket_probability_is_a_probability():
-    p = bucket_probability(parse_bucket("20°C"), _ens([19.8, 20.1, 20.4, 21.0]))
-    assert 0.0 <= p <= 1.0
-
-
-def test_ladder_sums_to_one():
-    labels = ["18°C or below"] + [f"{t}°C" for t in range(19, 25)] + ["25°C or higher"]
-    dist = bucket_distribution(labels, _ens([20.1, 20.4, 21.2, 19.8, 20.9, 22.0]))
-    assert sum(dist.values()) == pytest.approx(1.0, abs=1e-9)
-
-
-def test_kernel_smoothing_keeps_tails_alive():
-    """A tight ensemble must not assign literally zero to a neighbouring bucket:
-    that is what produces fake 90%+ edges."""
-    dist = bucket_distribution(
-        ["19°C", "20°C", "21°C"], _ens([20.0, 20.0, 20.0, 20.0])
-    )
-    assert dist["20°C"] > dist["19°C"] > 0.0
-
-
-def test_unparseable_bucket_stays_nan_and_does_not_poison_the_ladder():
-    dist = bucket_distribution(["20°C", "21°C", "Other"], _ens([20.1, 20.6]))
-    assert math.isnan(dist["Other"])
-    assert sum(v for v in dist.values() if not math.isnan(v)) == pytest.approx(1.0)
-
-
-# ------------------------------------------------------------------- slugs
-def test_event_target_date():
-    assert event_target_date("highest-temperature-in-nyc-on-september-3-2026") == date(2026, 9, 3)
-    # Any `-on-<month>-<day>-<year>` slug parses; it is event_kind that decides
-    # whether the event belongs to this strategy at all.
-    assert event_target_date("where-will-it-rain-on-september-3-2026") == date(2026, 9, 3)
-    assert event_target_date("min-arctic-sea-ice-extent-this-summer") is None
-
-
-def test_event_kind():
-    assert event_kind("highest-temperature-in-nyc-on-september-3-2026") == "max"
-    assert event_kind("lowest-temperature-in-nyc-on-september-3-2026") == "min"
-    assert event_kind("where-will-it-rain-on-september-3-2026") is None
-
-
-def test_longest_city_key_wins():
-    """`la` must not shadow `los-angeles`, nor `panama` shadow `panama-city`."""
-    assert city_from_slug("highest-temperature-in-los-angeles-on-september-3-2026").name == "Los Angeles"
-    assert city_from_slug("highest-temperature-in-san-francisco-on-may-1-2026").name == "San Francisco"
-    assert city_from_slug("highest-temperature-in-panama-city-on-may-1-2026").name == "Panama City"
-
-
-def test_market_unit_prefers_label_over_city_default():
-    assert market_unit(["24°C", "25°C"], CITIES["nyc"]) == "C"
-    assert market_unit(["84°F"], CITIES["london"]) == "F"
-    assert market_unit(["no unit here"], CITIES["nyc"]) == "F"
-
-
-# --------------------------------------------- forecast-quality guard
-def _mc(**vals):
-    return ModelConsensus(vals)
-
-
-def test_guard_blocks_when_models_genuinely_disagree():
-    """Miami 2026-09-06: GFS 95.5F, ECMWF 83.2F, ICON 89.2F, GEM 91.7F.
-    12F apart -- no bucket probability from any model is honest."""
-    reason = forecast_is_untradeable(
-        87.6, 1.97,
-        _mc(gfs_seamless=95.5, ecmwf_ifs025=83.2, icon_seamless=89.2, gem_seamless=91.7),
-        "F",
-    )
-    assert reason and "disagree" in reason
-
-
-def test_guard_blocks_when_our_ensemble_is_the_outlier():
-    reason = forecast_is_untradeable(
-        24.0, 0.5, _mc(gfs_seamless=26.0, ecmwf_ifs025=26.2, icon_seamless=26.1), "C"
-    )
-    assert reason and "outlier" in reason
-
-
-def test_guard_allows_agreeing_models():
-    assert forecast_is_untradeable(
-        21.7, 0.91, _mc(gfs_seamless=21.6, ecmwf_ifs025=21.9, icon_seamless=21.5), "C"
-    ) is None
-
-
-def test_guard_is_unit_aware():
-    """A 2 C spread limit is 3.6 F. The same physical disagreement must not be
-    blocked in Celsius and allowed in Fahrenheit."""
-    c_spread = _mc(a=20.0, b=22.5)                       # 2.5 C apart -> blocked
-    f_spread = _mc(a=68.0, b=72.5)                       # 4.5 F = 2.5 C -> blocked
-    assert forecast_is_untradeable(21.2, 0.5, c_spread, "C")
-    assert forecast_is_untradeable(70.2, 0.9, f_spread, "F")
-
-
-def test_guard_fails_open_without_enough_models():
-    """A missing cross-check must not silently halt all trading."""
-    assert forecast_is_untradeable(28.3, 0.53, ModelConsensus({}), "C") is None
-    assert forecast_is_untradeable(28.3, 0.53, _mc(gfs_seamless=30.0), "C") is None
-
-
-def test_guard_can_be_disabled(monkeypatch):
-    monkeypatch.setattr(settings, "model_disagreement_ratio", 0.0)
-    assert forecast_is_untradeable(
-        28.3, 0.53, _mc(a=40.0, b=41.0, c=42.0), "C"
-    ) is None
-
-
-def test_guard_blocks_bucket_disagreement_inside_the_degree_tolerance():
-    """Tel Aviv 2026-09-04: ensemble 32.61 vs model median 32.20 is only 0.41C,
-    inside the tolerance -- but they straddle the 32.5 rounding boundary, so we
-    say bucket 33 and 3 of 4 models say 32. The market priced 32 at 0.79."""
-    labels = ["28°C or below"] + [f"{t}°C" for t in range(29, 38)] + ["38°C or higher"]
-    reason = forecast_is_untradeable(
-        32.61, 0.65,
-        _mc(ecmwf_ifs025=33.3, gem_seamless=31.7, gfs_seamless=32.1, icon_seamless=32.3),
-        "C", labels,
-    )
-    assert reason and "bucket disagreement" in reason
-
-
-def test_bucket_agreement_is_allowed():
-    labels = ["28°C or below"] + [f"{t}°C" for t in range(29, 38)] + ["38°C or higher"]
-    assert forecast_is_untradeable(
-        32.1, 0.4, _mc(a=32.0, b=32.2, c=31.9, d=32.3), "C", labels
-    ) is None
-
-
-def test_bucket_check_is_skipped_without_labels():
-    """Same inputs that the bucket check rejects, minus the ladder: the degree
-    checks pass (median 32.4, gap 0.21) so nothing else should fire."""
-    mc = _mc(a=32.40, b=32.45, c=32.30)
-    labels = ["31°C", "32°C", "33°C"]
-    assert forecast_is_untradeable(32.61, 0.65, mc, "C", labels)      # with ladder
-    assert forecast_is_untradeable(32.61, 0.65, mc, "C", None) is None  # without
-
-
-def test_bucket_of_maps_open_ended_labels():
-    labels = ["28°C or below", "29°C", "30°C or higher"]
-    assert bucket_of(20.0, labels) == "28°C or below"
-    assert bucket_of(29.2, labels) == "29°C"
-    assert bucket_of(45.0, labels) == "30°C or higher"
-
-
-def test_consensus_median_and_spread():
-    mc = _mc(a=95.5, b=83.2, c=89.2, d=91.7)
-    assert mc.spread == pytest.approx(12.3)
-    assert mc.median == pytest.approx((89.2 + 91.7) / 2)
-    assert ModelConsensus({}).spread == 0.0
-
-
+# ------------------------------------------------- weather-market slugs
 def test_is_weather_event():
     assert is_weather_event("highest-temperature-in-nyc-on-september-3-2026")
     assert is_weather_event("where-will-it-rain-on-september-3-2026")
@@ -287,6 +101,24 @@ def test_env_file_beats_process_environment(monkeypatch, tmp_path):
 
 
 # -------------------------------------------------------------------- risk
+# `settings` is loaded from whatever .env the developer happens to have, so
+# without pinning these the suite passes or fails depending on whose machine it
+# runs on -- live mode makes the risk checks demand /arm, and a tuned-down
+# MAX_POSITION_USDC silently changes what every sizing assertion should expect.
+_PINNED = (
+    "trading_mode", "bankroll_usdc", "max_position_usdc",
+    "max_daily_notional_usdc", "max_open_positions", "max_daily_loss_usdc",
+    "kelly_fraction", "min_order_usdc", "min_order_shares",
+)
+
+
+@pytest.fixture(autouse=True)
+def _default_settings(monkeypatch):
+    """Reset the tuning knobs to their declared defaults for every test."""
+    for name in _PINNED:
+        monkeypatch.setattr(settings, name, type(settings).model_fields[name].default)
+
+
 @pytest.fixture
 def store():
     with tempfile.TemporaryDirectory() as d:

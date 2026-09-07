@@ -45,7 +45,6 @@ class Settings(BaseSettings):
     telegram_allowed_ids: str = ""      # extra comma-separated user ids
 
     # ---------- strategy toggles ----------
-    enable_forecast_edge: bool = True
     enable_copy_trading: bool = True
 
     # ---------- risk ----------
@@ -64,28 +63,6 @@ class Settings(BaseSettings):
     min_order_usdc: float = 1.0
     min_order_shares: float = 5.0
 
-    # ---------- forecast-edge strategy ----------
-    min_edge: float = 0.06           # required |model_prob - price|
-    min_price: float = 0.03          # avoid lottery tickets / dust
-    max_price: float = 0.95
-    max_spread: float = 0.06         # skip illiquid books
-    min_market_volume: float = 2000.0
-
-    # Model-disagreement guard. When the coarse ensemble and the high-resolution
-    # deterministic run disagree by more than
-    #   max(floor, ratio x ensemble_spread)
-    # the forecast is not trustworthy enough to trade, whichever run is right --
-    # the apparent "edge" is then mostly model error. Set the ratio to 0 to
-    # disable the guard entirely.
-    # Skip the market entirely when the independent deterministic models spread
-    # more than this. Miami 2026-09-06 was GFS 95.5F / ECMWF 83.2F / ICON 89.2F
-    # / GEM 91.7F: with 12F of real disagreement no bucket probability is honest.
-    max_model_spread_c: float = 2.0           # degrees C; scaled x1.8 for F
-    # And skip when our ensemble mean is itself the outlier versus the median of
-    # those models by more than max(floor, ratio x ensemble_spread).
-    model_disagreement_ratio: float = 0.5     # 0 disables both checks
-    model_disagreement_floor_c: float = 0.5   # degrees C; scaled x1.8 for F
-
     # ---------- copy strategy ----------
     # Leaders to mirror, managed directly in .env.  One entry per wallet,
     # comma separated, each `wallet[:name][:weight]`:
@@ -97,9 +74,12 @@ class Settings(BaseSettings):
     copy_scale: float = 0.05         # mirror 5% of the leader's notional
     copy_max_age_sec: int = 900      # ignore trades older than this
     copy_min_leader_notional: float = 50.0
+    # Sanity band on the ask we would pay. Outside it we decline to follow the
+    # leader: below, the book is dust; above, there is almost no upside left.
+    min_price: float = 0.03
+    max_price: float = 0.95
 
     # ---------- loops ----------
-    scan_interval_sec: int = 300
     copy_poll_interval_sec: int = 45
     heartbeat_hour_utc: int = 12     # daily summary
 

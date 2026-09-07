@@ -2,7 +2,7 @@
 """Entry point for the Polymarket weather bot.
 
     python main.py            # engine + Telegram control
-    python main.py --scan     # one forecast scan, print signals, exit
+    python main.py --scan     # one copy-trade poll, print signals, exit
     python main.py --no-tg    # engine only, log to console
 """
 from __future__ import annotations
@@ -22,14 +22,14 @@ log = logging.getLogger("main")
 def run_scan_only() -> int:
     bot = TradingBot()
     try:
-        signals = bot.forecast.generate()
+        signals = bot.copier.generate()
         if not signals:
-            print("No signals above the edge threshold.")
+            print("No copyable leader trades right now.")
             return 0
         print(f"\n{len(signals)} signal(s):\n")
         for s in signals:
             print(f"  {s.market}")
-            print(f"    ask {s.price:.3f} | model {s.model_prob:.1%} | edge {s.edge:+.1%}")
+            print(f"    ask {s.price:.3f}")
             print(f"    {s.note}\n")
         return 0
     finally:
@@ -77,7 +77,7 @@ def run_with_telegram() -> int:
 
 def main() -> int:
     p = argparse.ArgumentParser(description="Polymarket weather trading bot")
-    p.add_argument("--scan", action="store_true", help="run one scan and exit")
+    p.add_argument("--scan", action="store_true", help="run one copy poll and exit")
     p.add_argument("--no-tg", action="store_true", help="run the engine without Telegram")
     p.add_argument("--log-level", default=None)
     args = p.parse_args()

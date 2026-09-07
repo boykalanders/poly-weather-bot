@@ -29,7 +29,7 @@ HELP = """*Polymarket Weather Bot*
 /positions – open positions
 /trades – last 15 trades
 /pnl – running PnL
-/signals – run a scan now and show the edges found
+/signals – poll leaders now and show copyable trades
 /leaders – copy-trade wallets being followed
 
 *Control*
@@ -39,12 +39,11 @@ HELP = """*Polymarket Weather Bot*
 /kill – emergency stop (blocks every order)
 /revive – clear the kill switch
 /mode paper|live – switch trading mode
-/strategy forecast on|off, /strategy copy on|off
+/strategy copy on|off – enable or disable copy trading
 
 *Tuning*
 /set maxpos 25 – max USDC per market
 /set daily 200 – max USDC notional per day
-/set edge 0.06 – minimum edge to trade
 /set copyscale 0.05 – fraction of leader size to mirror
 /config – show current settings
 /reload – re-read COPY_WALLETS from .env
@@ -197,17 +196,16 @@ class TelegramApp:
 
     @restricted
     async def cmd_signals(self, update: Update, _ctx) -> None:
-        msg = await update.effective_message.reply_text("Scanning weather markets…")
-        signals = await asyncio.to_thread(self.bot.forecast.generate)
+        msg = await update.effective_message.reply_text("Polling leader wallets…")
+        signals = await asyncio.to_thread(self.bot.copier.generate)
         if not signals:
-            await msg.edit_text("No signals clear the edge threshold right now.")
+            await msg.edit_text("No copyable leader trades right now.")
             return
         lines = [f"<b>{len(signals)} signal(s)</b>"]
         for s in signals[:12]:
             lines.append(
                 f"• {_esc(s.market)}\n"
-                f"  ask {s.price:.3f} vs model {s.model_prob:.1%} "
-                f"→ edge <b>{s.edge:+.1%}</b>\n"
+                f"  ask {s.price:.3f}\n"
                 f"  <i>{_esc(s.note)}</i>"
             )
         await msg.edit_text("\n".join(lines), parse_mode=ParseMode.HTML)
@@ -301,22 +299,18 @@ class TelegramApp:
     @restricted
     async def cmd_strategy(self, update: Update, ctx) -> None:
         args = [a.lower() for a in (ctx.args or [])]
-        if len(args) != 2 or args[0] not in ("forecast", "copy") or args[1] not in ("on", "off"):
-            await update.effective_message.reply_text("Usage: /strategy forecast|copy on|off")
+        if len(args) != 2 or args[0] != "copy" or args[1] not in ("on", "off"):
+            await update.effective_message.reply_text("Usage: /strategy copy on|off")
             return
         on = args[1] == "on"
-        if args[0] == "forecast":
-            settings.enable_forecast_edge = on
-        else:
-            settings.enable_copy_trading = on
-        await update.effective_message.reply_text(f"{args[0]} strategy {'enabled' if on else 'disabled'}.")
+        settings.enable_copy_trading = on
+        await update.effective_message.reply_text(f"copy strategy {'enabled' if on else 'disabled'}.")
 
     @restricted
     async def cmd_set(self, update: Update, ctx) -> None:
         fields = {
             "maxpos": ("max_position_usdc", float),
             "daily": ("max_daily_notional_usdc", float),
-            "edge": ("min_edge", float),
             "copyscale": ("copy_scale", float),
             "bankroll": ("bankroll_usdc", float),
             "maxloss": ("max_daily_loss_usdc", float),
@@ -350,10 +344,9 @@ class TelegramApp:
             f"bankroll: ${s.bankroll_usdc:.0f}   kelly: {s.kelly_fraction:g}\n"
             f"max/market: ${s.max_position_usdc:.0f}   max/day: ${s.max_daily_notional_usdc:.0f}\n"
             f"max open: {s.max_open_positions}   daily stop: -${s.max_daily_loss_usdc:.0f}\n"
-            f"min edge: {s.min_edge:.1%}   price band: {s.min_price}–{s.max_price}\n"
-            f"max spread: {s.max_spread}   min volume: ${s.min_market_volume:.0f}\n"
             f"copy scale: {s.copy_scale:.1%}   copy max age: {s.copy_max_age_sec}s\n"
-            f"scan every {s.scan_interval_sec}s, copy poll every {s.copy_poll_interval_sec}s\n"
+            f"min leader notional: ${s.copy_min_leader_notional:.0f}\n"
+            f"copy poll every {s.copy_poll_interval_sec}s\n"
             f"clob: {_esc(self.bot.clob.health())}",
             parse_mode=ParseMode.HTML,
         )

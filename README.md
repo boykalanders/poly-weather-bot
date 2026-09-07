@@ -3,12 +3,8 @@
 An automated trading bot for Polymarket's daily weather markets, with a Telegram
 control surface for arming, monitoring, tuning and killing it.
 
-Two strategies:
-
-| Strategy | Idea |
-|---|---|
-| **forecast_edge** | Build a probability distribution over the day's high/low from an 82-member multi-model weather ensemble (GFS + ECMWF), compare against the order book, and buy buckets the market has underpriced. |
-| **copy_trader** | Mirror, at scaled-down size, the weather-market buys of leader wallets you list in `.env`. |
+One strategy: **copy_trader** mirrors, at scaled-down size, the weather-market
+buys of leader wallets you list in `.env`.
 
 **It starts in paper mode and refuses to place a live order until you `/arm` it.**
 
@@ -49,7 +45,7 @@ touch the service.
 
 ```bash
 python main.py             # engine + Telegram
-python main.py --scan      # one forecast pass, print the edges, exit
+python main.py --scan      # one leader poll, print what would be copied, exit
 python main.py --no-tg     # engine only, console logging
 ```
 
@@ -95,10 +91,10 @@ key on first run — leave them blank.
 **Status** — `/status` `/positions` `/trades` `/pnl` `/signals` `/leaders`
 
 **Control** — `/arm` `/disarm` `/pause` `/resume` `/kill` `/revive`
-`/mode paper|live` `/strategy forecast|copy on|off`
+`/mode paper|live` `/strategy copy on|off`
 
-**Tuning** — `/set maxpos 25` `/set daily 200` `/set edge 0.06`
-`/set copyscale 0.05` `/config` `/reload`
+**Tuning** — `/set maxpos 25` `/set daily 200` `/set copyscale 0.05`
+`/config` `/reload`
 
 You get a push message on every fill, every settlement (win/loss + PnL), every
 loop error, and a daily summary at `HEARTBEAT_HOUR_UTC`.
@@ -185,57 +181,8 @@ Two caveats:
 - **securebet** has the better and far longer record (17.3% across 18 months),
   but had made no copyable buy since 2026-08-07.
 
-Expect roughly 2 copy signals a day. **Keep `ENABLE_FORECAST_EDGE=true`** —
-copy trading alone will trade rarely.
-
----
-
-## How the probability model works
-
-Raw ensembles are **under-dispersed** — members cluster tighter than reality, so
-counting members per bucket gives over-confident probabilities. Instead each
-member gets a Gaussian kernel and the CDFs are averaged
-(`buckets.bucket_probability`). Bandwidth is
-`max(floor, 0.35 × ensemble_spread)`, with the floor (0.8°F / 0.45°C)
-representing irreducible station and rounding noise.
-
-Buckets are half-open intervals on the *rounded* reported temperature: `"24°C"`
-means the reported high rounds to 24, i.e. `[23.5, 24.5)`. The ladder is
-exhaustive and mutually exclusive, so probabilities are renormalised to sum to 1.
-
-**The bandwidth is the single most important number in this bot and it is not
-yet calibrated against outcomes.** Too narrow and the model manufactures huge
-fake edges on tail buckets. Run in paper mode long enough to compare
-`model_prob` against realised outcomes before going live.
-
-### Forecast-quality guards
-
-The first paper session produced seven trades with edges of +6.6% to +22.1%.
-Investigating them showed the ensemble was not competing against a mispriced
-market so much as against *other weather models*. Before trusting any edge, the
-ensemble is now cross-checked against four independent deterministic runs — GFS,
-ECMWF, ICON and GEM, fetched in a single cached request per city — and the
-market is skipped when:
-
-1. **Those models spread more than `MAX_MODEL_SPREAD_C`.** Miami on 2026-09-06
-   was GFS 95.5°F, ECMWF 83.2°F, ICON 89.2°F, GEM 91.7°F. With 12°F of genuine
-   disagreement, no bucket probability is honest.
-2. **Our ensemble mean is an outlier** versus the median of those runs.
-3. **We disagree about which *bucket* wins.** Degrees are the wrong unit here.
-   Tel Aviv on 2026-09-04: ensemble 32.61°C vs model median 32.20°C is a 0.41°
-   gap, well inside tolerance — but they straddle the 32.5 rounding boundary,
-   so we said bucket 33 while 3 of 4 models said 32 and the market priced 32 at
-   0.79. That one trade would have been booked as a +43-point edge.
-
-On a live scan of 286 events these removed 142 / 54 / 53 respectively, leaving
-3 signals instead of ~20.
-
-Note the reference is deliberately **not** Open-Meteo's `best_match`: in the US
-that resolves to GFS, which was itself the warm outlier in both the Miami and
-Houston cases.
-
-The guards remove forecasts we have no business pricing. They do **not** prove
-the surviving edges are real — only resolution data can.
+Expect roughly 2 copy signals a day. That is the whole of the bot's activity
+now that forecast_edge is gone — long quiet stretches are normal, not a fault.
 
 ---
 
@@ -249,11 +196,7 @@ polyweather/
             dataapi.py      public trade/position feeds
             clob.py         order books + authenticated order placement
             http.py         retrying HTTP wrapper
-  weather/  cities.py       58 cities -> station coords, tz, quoted unit
-            providers.py    Open-Meteo ensemble, cached + rate-paced
-            buckets.py      bucket parsing + kernel-smoothed probabilities
-  strategy/ forecast_edge.py
-            copy_trader.py
+  strategy/ copy_trader.py  leader polling, weather-slug filter, mirroring
   engine/   risk.py         limits, sizing, kill switch
             executor.py     paper + live execution
             bot.py          loops, settlement, status
@@ -261,7 +204,7 @@ polyweather/
   tg/       app.py          command handlers
             notifier.py     thread -> asyncio bridge for alerts
 deploy/   install-ubuntu.sh, polyweather.service
-tests/                      bucket maths, sizing, risk limits
+tests/                      sizing, risk limits, leader parsing
 data/top_traders.json       copy-trade leaders
 ```
 
@@ -271,9 +214,6 @@ Run the tests with `python -m pytest tests/ -q`.
 
 ## Caveats
 
-- **The forecast edges are unvalidated.** Live scans have produced signals as
-  large as +30%. Edges that big usually mean a thin resting order or a
-  miscalibrated bandwidth, not free money. Paper-trade first.
 - **Copy trading is inherently lagged.** You see a leader's fill after it
   happened. `COPY_MAX_AGE_SEC` and the 4-cent chase guard limit the damage, but
   you will systematically get worse prices than the leader.

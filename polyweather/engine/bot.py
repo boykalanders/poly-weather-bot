@@ -1,9 +1,9 @@
 """The trading engine: wires clients, strategies, risk and execution together.
 
 Runs three background loops
-  * forecast scan   -- every `scan_interval_sec`
   * copy poll       -- every `copy_poll_interval_sec`
   * settlement      -- every 15 min, books PnL on resolved markets
+  * heartbeat       -- daily summary at `heartbeat_hour_utc`
 
 and pushes every fill / error / daily summary out through the notifier.
 """
@@ -21,8 +21,6 @@ from ..config import settings
 from ..store.db import Store
 from ..strategy.base import Signal
 from ..strategy.copy_trader import CopyTraderStrategy
-from ..strategy.forecast_edge import ForecastEdgeStrategy
-from ..weather.providers import OpenMeteoProvider
 from .executor import Executor
 from .risk import RiskManager
 
@@ -35,19 +33,17 @@ class TradingBot:
         self.gamma = GammaClient()
         self.data = DataClient()
         self.clob = ClobClient()
-        self.wx = OpenMeteoProvider()
 
         self.risk = RiskManager(self.store)
         self.executor = Executor(self.clob, self.store)
 
-        self.forecast = ForecastEdgeStrategy(self.gamma, self.clob, self.wx)
         self.copier = CopyTraderStrategy(self.data, self.clob, self.store)
 
         self._notify = notify or (lambda msg: log.info("NOTIFY: %s", msg))
         self._stop = threading.Event()
         self._threads: list[threading.Thread] = []
         self.started_at = time.time()
-        self.last_scan: float | None = None
+        self.last_poll: float | None = None
         self.last_error: str = ""
 
     # ------------------------------------------------------------- plumbing
@@ -96,17 +92,6 @@ class TradingBot:
         return placed
 
     # ---------------------------------------------------------------- loops
-    def scan_once(self) -> list[Signal]:
-        """One forecast-edge pass. Returns the signals it found (pre-risk)."""
-        if not settings.enable_forecast_edge:
-            return []
-        signals = self.forecast.generate()
-        self.last_scan = time.time()
-        log.info("forecast scan produced %d signal(s)", len(signals))
-        if signals:
-            self._handle_signals(signals)
-        return signals
-
     def _loop(self, name: str, fn, interval: int) -> None:
         while not self._stop.is_set():
             try:
@@ -117,13 +102,16 @@ class TradingBot:
                 self.notify(f"⚠️ {name} loop error: {e}")
             self._stop.wait(interval)
 
-    def _copy_pass(self) -> None:
+    def copy_once(self) -> list[Signal]:
+        """One copy-trade pass. Returns the signals it found (pre-risk)."""
         if not settings.enable_copy_trading:
-            return
+            return []
         signals = self.copier.generate()
+        self.last_poll = time.time()
         if signals:
             log.info("copy pass produced %d signal(s)", len(signals))
             self._handle_signals(signals)
+        return signals
 
     def _settlement_pass(self) -> None:
         """Book realized PnL for positions whose market has resolved."""
@@ -157,8 +145,7 @@ class TradingBot:
             return
         self._stop.clear()
         specs = [
-            ("scan", self.scan_once, settings.scan_interval_sec),
-            ("copy", self._copy_pass, settings.copy_poll_interval_sec),
+            ("copy", self.copy_once, settings.copy_poll_interval_sec),
             ("settle", self._settlement_pass, 900),
             ("heartbeat", self._heartbeat_pass, 600),
         ]
@@ -191,11 +178,11 @@ class TradingBot:
         else:
             state = "🟢 running"
 
-        last = ("never" if not self.last_scan
-                else f"{int(time.time() - self.last_scan)}s ago")
+        last = ("never" if not self.last_poll
+                else f"{int(time.time() - self.last_poll)}s ago")
         lines = [
             f"Mode: *{settings.trading_mode}*   State: {state}",
-            f"Uptime: {uptime / 3600:.1f}h   Last scan: {last}",
+            f"Uptime: {uptime / 3600:.1f}h   Last poll: {last}",
             "",
             f"Today: {today['n_trades']} trades, "
             f"${float(today['notional']):.0f} notional, "
@@ -203,8 +190,7 @@ class TradingBot:
             f"All time: {totals['n_trades']} trades, PnL {totals['realized_pnl']:+.2f} USDC",
             f"Open positions: {len(positions)}/{settings.max_open_positions}",
             "",
-            f"Strategies: forecast={'on' if settings.enable_forecast_edge else 'off'}, "
-            f"copy={'on' if settings.enable_copy_trading else 'off'} "
+            f"Copy trading: {'on' if settings.enable_copy_trading else 'off'} "
             f"({len(self.copier.leaders)} leaders)",
             f"Limits: ${settings.max_position_usdc:.0f}/mkt, "
             f"${settings.max_daily_notional_usdc:.0f}/day, "
@@ -216,7 +202,7 @@ class TradingBot:
 
     def close(self) -> None:
         self.stop()
-        for c in (self.gamma, self.data, self.clob, self.wx):
+        for c in (self.gamma, self.data, self.clob):
             try:
                 c.close()
             except Exception:
