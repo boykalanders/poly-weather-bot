@@ -146,6 +146,50 @@ way, which is why `COPY_WALLETS_FILE` points at `/app/seed/`. Attaching a disk
 also pins the service to a single instance, so unlike Fly there is no scale
 count to remember.
 
+### Windows
+
+Registers a Scheduled Task that starts at logon and runs windowless.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File deploy\install-windows.ps1
+notepad .env                                    # Telegram token + chat id
+Start-ScheduledTask -TaskName PolyWeatherBot
+Get-Content logs\bot.log -Wait -Tail 20
+```
+
+Control:
+
+```powershell
+Get-ScheduledTask   -TaskName PolyWeatherBot    # status
+Stop-ScheduledTask  -TaskName PolyWeatherBot
+Start-ScheduledTask -TaskName PolyWeatherBot    # restart, e.g. after .env edits
+Unregister-ScheduledTask -TaskName PolyWeatherBot
+```
+
+It runs under `pythonw.exe`, so there is no console window and **`logs\bot.log`
+is the only place output appears** — the file handler works with no console
+streams at all, so nothing is lost.
+
+Four task settings are doing real work, and each fixes a default that would
+otherwise bite:
+
+| Setting | Why |
+|---|---|
+| `ExecutionTimeLimit 0` | the default kills a task after three days |
+| `MultipleInstances IgnoreNew` | two copies would mirror every fill twice and collide on Telegram's long poll |
+| `AllowStartIfOnBatteries` | Windows refuses to start a task on battery by default |
+| `DontStopIfGoingOnBatteries` | and stops a running one when you unplug |
+
+This is a Scheduled Task, not a true Windows service. A real service needs a
+wrapper such as NSSM or WinSW to supervise a non-service binary, and buys only
+the ability to run with nobody logged in — which a desktop that sleeps will not
+deliver anyway.
+
+**A sleeping PC stops the bot**, exactly as on the Mac: at roughly two copy
+signals a day, and with `COPY_MAX_AGE_SEC` discarding anything found late, an
+overnight sleep misses most of them. Set the machine to never sleep, or treat
+this as something you start deliberately rather than a service.
+
 ### Running it by hand
 
 ```bash
@@ -310,6 +354,7 @@ polyweather/
             notifier.py     thread -> asyncio bridge for alerts
 deploy/   install-ubuntu.sh + polyweather.service (systemd)
           install-macos.sh (launchd agent)
+          install-windows.ps1 (scheduled task)
 Dockerfile                  container image (Fly.io, Render)
 fly.toml, render.yaml       host blueprints
 tests/                      sizing, risk limits, leader parsing
