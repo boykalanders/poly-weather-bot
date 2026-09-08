@@ -121,6 +121,31 @@ Two things the Dockerfile handles that are easy to get wrong:
 There is no `[http_service]`: the bot never listens on a port, so there is
 nothing to route to and no health check to pass.
 
+### Render.com
+
+Same shape as Fly, using the committed `render.yaml` and the same Dockerfile.
+
+1. Push the repo, then in the Render dashboard: **New → Blueprint** and pick it.
+2. It prompts for `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` and `COPY_WALLETS`
+   (they are marked `sync: false`, so they are never stored in the repo).
+3. Deploy, and watch the service logs.
+
+The blueprint declares a **Background Worker**, not a Web Service. That is the
+one choice worth understanding: Render health-checks a Web Service on an HTTP
+port, and this bot never opens one — it long-polls Telegram outbound. Deployed
+as a Web Service it would be killed for failing a health check it can never
+pass.
+
+**Both the worker and the disk are paid-plan features.** Render has no free
+tier that keeps a process alive with persistent storage, so this is not a way
+to run the bot for nothing.
+
+The disk mounts at `/app/data` for the sqlite database, for exactly the reasons
+in the Fly section — and it hides the image's copy of the leader list the same
+way, which is why `COPY_WALLETS_FILE` points at `/app/seed/`. Attaching a disk
+also pins the service to a single instance, so unlike Fly there is no scale
+count to remember.
+
 ### Running it by hand
 
 ```bash
@@ -285,7 +310,8 @@ polyweather/
             notifier.py     thread -> asyncio bridge for alerts
 deploy/   install-ubuntu.sh + polyweather.service (systemd)
           install-macos.sh (launchd agent)
-Dockerfile, fly.toml        container / Fly.io worker
+Dockerfile                  container image (Fly.io, Render)
+fly.toml, render.yaml       host blueprints
 tests/                      sizing, risk limits, leader parsing
 data/top_traders.json       copy-trade leaders
 ```

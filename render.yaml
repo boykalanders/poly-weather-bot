@@ -1,0 +1,45 @@
+# Render.com blueprint.
+#
+#   Push this file, then: Render dashboard -> New -> Blueprint -> pick the repo.
+#   Fill in the three secrets it prompts for and deploy.
+#
+# `type: worker` is a Background Worker -- a long-running process with no port
+# and no inbound routing, which is what this bot is. A Web Service would be the
+# wrong choice: Render health-checks those on an HTTP port the bot never opens.
+services:
+  - type: worker
+    name: polyweather
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    # Background Workers and disks are both paid-plan features on Render; there
+    # is no free tier that keeps a process alive with persistent storage.
+    plan: starter
+    region: frankfurt
+
+    # The sqlite database. It holds the daily notional counter, open positions,
+    # the leader-trade dedup keys and the kill-switch flag, so it has to survive
+    # a redeploy -- without the disk every risk limit silently resets on each
+    # deploy. Attaching a disk also pins the service to a single instance, which
+    # is what we want: two copies would mirror every leader fill twice and
+    # collide on Telegram's long poll.
+    disk:
+      name: polyweather-data
+      mountPath: /app/data
+      sizeGB: 1
+
+    envVars:
+      - key: TRADING_MODE
+        value: paper
+      - key: LOG_LEVEL
+        value: INFO
+      # The disk mounts over /app/data and hides the image's copy of the leader
+      # list, so point at the staged copy the Dockerfile leaves outside it.
+      - key: COPY_WALLETS_FILE
+        value: /app/seed/top_traders.json
+      # sync: false means "prompt me, do not store it in the repo".
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: COPY_WALLETS
+        sync: false
