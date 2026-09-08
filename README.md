@@ -151,9 +151,10 @@ count to remember.
 Registers a Scheduled Task that starts at logon and runs windowless.
 
 ```powershell
+cd C:\path\to\poly-weather                      # every path below is relative
 powershell -ExecutionPolicy Bypass -File deploy\install-windows.ps1
 notepad .env                                    # Telegram token + chat id
-Start-ScheduledTask -TaskName PolyWeatherBot
+Start-ScheduledTask -TaskName PolyWeatherBot    # only after the installer ran
 Get-Content logs\bot.log -Wait -Tail 20
 ```
 
