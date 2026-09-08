@@ -10,7 +10,9 @@ buys of leader wallets you list in `.env`.
 
 ---
 
-## Deploy on an Ubuntu VPS
+## Deploy
+
+### Ubuntu VPS
 
 Needs Python 3.10+ (Ubuntu 22.04 / 24.04 are fine as shipped).
 
@@ -40,6 +42,44 @@ sudo systemctl status polyweather
 
 Day-to-day control is via Telegram (`/pause`, `/kill`, `/arm`) — no need to
 touch the service.
+
+### macOS
+
+Needs Python 3.10+. The `python3` Apple ships is 3.9, so install a newer one
+first: `brew install python@3.12`.
+
+```bash
+git clone <your-repo> poly-weather && cd poly-weather
+bash deploy/install-macos.sh       # no sudo
+nano .env                          # Telegram token + chat id
+launchctl kickstart -k gui/$UID/com.polyweather.bot
+tail -f logs/bot.log
+```
+
+The installer builds `.venv`, chmods `.env` to 600, and writes a launchd agent
+at `~/Library/LaunchAgents/com.polyweather.bot.plist` that runs at login and
+restarts on crash. It runs as you, from the checkout — there is no `/opt` copy
+and no service account, because a LaunchAgent runs as the logged-in user
+anyway. Re-run it to upgrade.
+
+```bash
+launchctl kickstart -k gui/$UID/com.polyweather.bot   # restart, e.g. after .env edits
+launchctl print gui/$UID/com.polyweather.bot          # status
+launchctl bootout gui/$UID/com.polyweather.bot        # stop and unload
+```
+
+**A Mac is not a VPS.** A LaunchAgent runs only while you are logged in, and
+the bot stops when the machine sleeps — a sleeping laptop misses the leader
+fills it exists to mirror, and `COPY_MAX_AGE_SEC` means a trade found late is
+skipped rather than chased. For unattended running, keep it awake:
+
+```bash
+caffeinate -dimsu -w $(pgrep -f 'polyweather|main.py' | head -1)
+```
+
+or turn off sleep in System Settings → Battery / Energy Saver. On a laptop that
+closes, treat this as a foreground tool you start when you want it, not a
+service.
 
 ### Running it by hand
 
@@ -203,7 +243,8 @@ polyweather/
   store/db.py               sqlite: trades, positions, daily counters
   tg/       app.py          command handlers
             notifier.py     thread -> asyncio bridge for alerts
-deploy/   install-ubuntu.sh, polyweather.service
+deploy/   install-ubuntu.sh + polyweather.service (systemd)
+          install-macos.sh (launchd agent)
 tests/                      sizing, risk limits, leader parsing
 data/top_traders.json       copy-trade leaders
 ```
