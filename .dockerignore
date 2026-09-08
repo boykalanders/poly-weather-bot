@@ -1,0 +1,20 @@
+# Never bake secrets or local state into the image. Config on Fly comes from
+# `fly secrets set`, and the sqlite database lives on the mounted volume.
+.env
+.venv/
+logs/
+
+# Local runtime state, but keep the leader list: it is configuration, not
+# state, and it is the fallback when COPY_WALLETS is unset.
+data/*
+!data/top_traders.json
+
+.git/
+.gitignore
+.pytest_cache/
+__pycache__/
+*.pyc
+*.sqlite3
+
+deploy/
+tests/

@@ -1,0 +1,39 @@
+# Fly.io config for the copy-trading bot.
+#
+#   fly launch --no-deploy --copy-config     # create the app
+#   fly volumes create polyweather_data -s 1
+#   fly secrets set TELEGRAM_BOT_TOKEN=... TELEGRAM_CHAT_ID=... COPY_WALLETS=...
+#   fly deploy
+#
+# Change `app` to your own name. `primary_region` is set to London simply
+# because that is a sensible default; pick whichever region you actually want.
+
+app = "polyweather"
+primary_region = "lhr"
+
+[build]
+  dockerfile = "Dockerfile"
+
+# The sqlite database lives here. Without this volume the file is recreated on
+# every deploy and restart -- and it holds the daily notional counter, the open
+# positions, the leader-trade dedup keys and the kill-switch flag, so losing it
+# silently resets every risk limit the bot has.
+[[mounts]]
+  source = "polyweather_data"
+  destination = "/app/data"
+
+# There is no [http_service] and no [[services]] block on purpose: this is a
+# worker, not a web app. It never listens on a port, so there is nothing for
+# Fly to route to and no health check to pass.
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
+[env]
+  # Non-secret defaults. Anything sensitive goes through `fly secrets set`,
+  # which lands in the environment -- pydantic-settings ranks environment
+  # variables above the .env file, and no .env ships in the image.
+  TRADING_MODE = "paper"
+  LOG_LEVEL = "INFO"
+  # Outside /app/data, because the volume mount hides the image's copy there.
+  COPY_WALLETS_FILE = "/app/seed/top_traders.json"

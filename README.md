@@ -81,6 +81,46 @@ or turn off sleep in System Settings → Battery / Energy Saver. On a laptop tha
 closes, treat this as a foreground tool you start when you want it, not a
 service.
 
+### Fly.io
+
+Runs the bot as a persistent worker with the sqlite database on a volume.
+
+```bash
+fly launch --no-deploy --copy-config      # edit `app` in fly.toml first
+fly volumes create polyweather_data -s 1 -r lhr
+fly secrets set TELEGRAM_BOT_TOKEN=... TELEGRAM_CHAT_ID=...                 COPY_WALLETS=0xabc...:KickstandBot:1.0
+fly deploy
+fly logs
+```
+
+**Run exactly one machine.** Fly often provisions two by default, and two
+copies of this bot means every leader fill is mirrored twice, both instances
+race on the same daily counter, and Telegram rejects the second long-poll with
+a 409 conflict. The volume can only attach to one machine anyway:
+
+```bash
+fly scale count 1
+fly status                                # confirm: 1 machine
+```
+
+Config comes from `fly secrets`, not a `.env` — no `.env` ships in the image
+(see `.dockerignore`), and pydantic-settings ranks environment variables above
+the file. `/reload` still works: `copy_trader` falls back to the process
+environment when there is no file on disk.
+
+Two things the Dockerfile handles that are easy to get wrong:
+
+- The volume mounts at `/app/data` and **hides whatever the image had there**,
+  so `data/top_traders.json` is copied to `/app/seed/` and `COPY_WALLETS_FILE`
+  points at that. Without it the leader fallback vanishes the moment a volume
+  is attached, and copy trading follows nobody.
+- The database must be on the volume. It holds the daily notional counter, the
+  open positions, the leader-trade dedup keys and the kill-switch flag — losing
+  it on redeploy silently resets every risk limit at once.
+
+There is no `[http_service]`: the bot never listens on a port, so there is
+nothing to route to and no health check to pass.
+
 ### Running it by hand
 
 ```bash
@@ -245,6 +285,7 @@ polyweather/
             notifier.py     thread -> asyncio bridge for alerts
 deploy/   install-ubuntu.sh + polyweather.service (systemd)
           install-macos.sh (launchd agent)
+Dockerfile, fly.toml        container / Fly.io worker
 tests/                      sizing, risk limits, leader parsing
 data/top_traders.json       copy-trade leaders
 ```
