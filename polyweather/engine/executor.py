@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import logging
+import math
 import time
 from dataclasses import dataclass
+from decimal import Decimal
 
 from ..clients.clob import ClobClient
 from ..config import settings
@@ -26,6 +28,24 @@ _PERMANENT = (
 def _is_permanent(error: str) -> bool:
     e = (error or "").lower()
     return any(marker in e for marker in _PERMANENT)
+
+
+def quantize_price(price: float, tick: float) -> float:
+    """Snap `price` up to the market's tick grid, clamped inside (0, 1).
+
+    Rounding a BUY *up* keeps the limit marketable -- rounding down could land
+    below the ask and simply rest on the book instead of filling. The decimal
+    places are taken from the tick itself so 0.01 yields 2 dp and 0.0001 four,
+    which is what the venue's precision table asks for.
+    """
+    tick = float(tick or 0.01)
+    if tick <= 0:
+        tick = 0.01
+    steps = math.ceil(round(float(price) / tick, 9))
+    decimals = max(0, -Decimal(str(tick)).as_tuple().exponent)
+    out = round(steps * tick, decimals)
+    # Stay strictly inside the book's bounds: the venue rejects 0 and 1.
+    return min(max(out, tick), round(1 - tick, decimals))
 
 
 @dataclass
@@ -59,8 +79,12 @@ class Executor:
     def execute(self, sig: Signal, decision: RiskDecision) -> Execution:
         mode = settings.trading_mode
         shares = decision.size_shares
-        # Cross the spread by a tick so marketable limits actually fill.
-        limit = min(0.999, round(sig.price + 0.005, 3))
+        # Cross the spread so the limit is marketable, then snap to the market's
+        # own price grid: the CLOB rejects any price that is not a multiple of
+        # its tick_size, and weather markets quote 0.01 while others go finer.
+        # A hardcoded +0.005 produced prices like 0.555 on a 0.01 market, which
+        # the venue refuses outright.
+        limit = quantize_price(sig.price + sig.tick_size, sig.tick_size)
         notional = round(shares * limit, 2)
 
         order_id, error, ok = "", "", True

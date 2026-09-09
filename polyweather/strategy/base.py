@@ -17,6 +17,7 @@ class Signal:
     model_prob: float      # our estimate of the true probability
     edge: float            # model_prob - price
     available_size: float = 1e9
+    tick_size: float = 0.01   # price granularity the venue will accept
     note: str = ""
     meta: dict = field(default_factory=dict)
 

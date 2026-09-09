@@ -21,6 +21,11 @@ class Book:
     best_ask: float
     bid_size: float
     ask_size: float
+    # Per-market, from the same /book response. The CLOB rejects an order whose
+    # price is not a multiple of tick_size, so a fixed rounding rule is not safe
+    # -- weather markets quote 0.01 while others go to 0.0001.
+    tick_size: float = 0.01
+    min_order_size: float = 0.0
 
     @property
     def mid(self) -> float:
@@ -63,7 +68,11 @@ class ClobClient:
         best_ask = min((float(a["price"]) for a in asks), default=0.0)
         bid_sz = sum(float(b["size"]) for b in bids if float(b["price"]) == best_bid)
         ask_sz = sum(float(a["size"]) for a in asks if float(a["price"]) == best_ask)
-        return Book(token_id, best_bid, best_ask, bid_sz, ask_sz)
+        return Book(
+            token_id, best_bid, best_ask, bid_sz, ask_sz,
+            tick_size=float(d.get("tick_size") or 0.01),
+            min_order_size=float(d.get("min_order_size") or 0.0),
+        )
 
     def midpoint(self, token_id: str) -> float | None:
         d = self._h.get("/midpoint", token_id=token_id)

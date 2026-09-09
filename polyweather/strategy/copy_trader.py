@@ -239,6 +239,7 @@ class CopyTraderStrategy(Strategy):
             model_prob=min(0.99, max(t.price, ask) + 0.02),
             edge=max(0.0, t.price - ask),
             available_size=book.ask_size,
+            tick_size=book.tick_size,
             note=(f"copy {leader.label} ({leader.wallet[:8]}) "
                   f"{t.size:.0f}@{t.price:.3f} = ${t.notional:.0f}"),
             meta={

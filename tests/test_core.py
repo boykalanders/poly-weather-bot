@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import pytest  # noqa: E402
 
 from polyweather.config import settings  # noqa: E402
+from polyweather.engine.executor import quantize_price  # noqa: E402
 from polyweather.engine.risk import RiskManager  # noqa: E402
 from polyweather.store.db import Store  # noqa: E402
 from polyweather.strategy.copy_trader import (  # noqa: E402
@@ -268,3 +269,41 @@ def test_resolve_is_idempotent(store):
 def test_leader_trade_dedup(store):
     assert store.seen_leader_trade("k1") is False
     assert store.seen_leader_trade("k1") is True
+
+
+# ------------------------------------------------------- tick-size conformance
+def test_quantize_snaps_to_a_penny_market():
+    # The CLOB rejects a price that is not a multiple of tick_size. The old
+    # fixed +0.005 chase produced 0.555 on a 0.01 market, which is refused.
+    assert quantize_price(0.55 + 0.01, 0.01) == 0.56
+    assert quantize_price(0.555, 0.01) == 0.56
+
+
+def test_quantize_rounds_up_so_a_buy_stays_marketable():
+    # Rounding down would rest below the ask instead of crossing it.
+    assert quantize_price(0.541, 0.01) == 0.55
+    assert quantize_price(0.3315, 0.001) == 0.332
+
+
+def test_quantize_respects_finer_ticks():
+    assert quantize_price(0.5505 + 0.001, 0.001) == 0.552
+    assert quantize_price(0.12345, 0.0001) == 0.1235
+
+
+def test_quantize_stays_inside_the_books_bounds():
+    assert quantize_price(1.5, 0.01) == 0.99
+    assert quantize_price(0.0, 0.01) == 0.01
+
+
+def test_quantize_survives_a_missing_tick():
+    # book() defaults tick_size when the field is absent; never divide by zero.
+    assert quantize_price(0.55, 0) == 0.55
+    assert quantize_price(0.551, None) == 0.56
+
+
+def test_every_quantized_price_is_a_tick_multiple():
+    for tick in (0.1, 0.01, 0.005, 0.001, 0.0001):
+        for raw in (0.013, 0.2222, 0.5, 0.7777, 0.98):
+            p = quantize_price(raw, tick)
+            assert abs(round(p / tick) - p / tick) < 1e-6, (tick, raw, p)
+            assert tick <= p <= 1 - tick
