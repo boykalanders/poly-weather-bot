@@ -354,6 +354,9 @@ class TelegramApp:
     @restricted
     async def cmd_reload(self, update: Update, _ctx) -> None:
         n = self.bot.copier.reload_leaders()
+        # The stream filters by wallet locally, so it has to learn the new set
+        # too -- otherwise /reload changes the poller and nothing else.
+        self.bot.stream.set_wallets([l.wallet for l in self.bot.copier.leaders])
         source = _leader_source()
         if not n:
             await update.effective_message.reply_text(

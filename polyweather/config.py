@@ -46,6 +46,11 @@ class Settings(BaseSettings):
 
     # ---------- strategy toggles ----------
     enable_copy_trading: bool = True
+    # Push leader fills over the RTDS activity websocket instead of waiting for
+    # the next poll. The poll stays on as a backstop either way; turning this
+    # off falls back to polling alone, which adds up to copy_poll_interval_sec
+    # of latency against the 4-cent chase guard.
+    enable_activity_stream: bool = True
 
     # ---------- risk ----------
     bankroll_usdc: float = 500.0

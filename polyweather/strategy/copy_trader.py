@@ -174,6 +174,25 @@ class CopyTraderStrategy(Strategy):
                 log.exception("error polling leader %s", leader.wallet)
         return out
 
+    def mirror_trade(self, t: Trade) -> Signal | None:
+        """Mirror one trade pushed by the activity stream.
+
+        The same filter chain the poller uses, minus the age cutoff -- a
+        streamed fill is seconds old by definition. `seen_leader_trade` keeps
+        this idempotent when the backstop poll re-delivers the same trade.
+        """
+        leader = self._leader_for(t.wallet)
+        if leader is None:
+            return None
+        return self._mirror(leader, t)
+
+    def _leader_for(self, wallet: str) -> Leader | None:
+        w = (wallet or "").lower()
+        for leader in self.leaders:
+            if leader.wallet.lower() == w:
+                return leader
+        return None
+
     def _scan_leader(self, leader: Leader, cutoff: int) -> list[Signal]:
         trades = self.data.recent_user_trades(leader.wallet, cutoff)
         out: list[Signal] = []

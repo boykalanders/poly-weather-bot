@@ -1,7 +1,12 @@
 """The trading engine: wires clients, strategies, risk and execution together.
 
+Copy signals arrive two ways: pushed by the RTDS activity stream within a
+second of the leader's fill, and swept up by a slower backstop poll that
+catches anything a disconnect dropped. Both funnel through the same filter
+chain, and the leader-trade dedup key makes the overlap harmless.
+
 Runs three background loops
-  * copy poll       -- every `copy_poll_interval_sec`
+  * copy poll       -- every `copy_poll_interval_sec` (backstop)
   * settlement      -- every 15 min, books PnL on resolved markets
   * heartbeat       -- daily summary at `heartbeat_hour_utc`
 
@@ -17,6 +22,7 @@ from datetime import datetime, timezone
 from ..clients.clob import ClobClient
 from ..clients.dataapi import DataClient
 from ..clients.gamma import GammaClient
+from ..clients.rtds import ActivityStream
 from ..config import settings
 from ..store.db import Store
 from ..strategy.base import Signal
@@ -38,6 +44,10 @@ class TradingBot:
         self.executor = Executor(self.clob, self.store)
 
         self.copier = CopyTraderStrategy(self.data, self.clob, self.store)
+        self.stream = ActivityStream(
+            self._on_streamed_trade,
+            wallets=[l.wallet for l in self.copier.leaders],
+        )
 
         self._notify = notify or (lambda msg: log.info("NOTIFY: %s", msg))
         self._stop = threading.Event()
@@ -102,6 +112,21 @@ class TradingBot:
                 self.notify(f"⚠️ {name} loop error: {e}")
             self._stop.wait(interval)
 
+    def _on_streamed_trade(self, t) -> None:
+        """A leader fill, seconds old, pushed by the activity stream."""
+        if not settings.enable_copy_trading:
+            return
+        try:
+            sig = self.copier.mirror_trade(t)
+        except Exception as e:
+            self.last_error = f"stream: {e}"
+            log.exception("stream mirror failed")
+            return
+        if sig:
+            self.last_poll = time.time()
+            log.info("stream signal: %s", sig.market)
+            self._handle_signals([sig])
+
     def copy_once(self) -> list[Signal]:
         """One copy-trade pass. Returns the signals it found (pre-risk)."""
         if not settings.enable_copy_trading:
@@ -149,6 +174,9 @@ class TradingBot:
             ("settle", self._settlement_pass, 900),
             ("heartbeat", self._heartbeat_pass, 600),
         ]
+        if settings.enable_activity_stream:
+            self.stream.set_wallets([l.wallet for l in self.copier.leaders])
+            self.stream.start()
         for name, fn, interval in specs:
             t = threading.Thread(target=self._loop, args=(name, fn, interval),
                                  name=f"pw-{name}", daemon=True)
@@ -158,6 +186,7 @@ class TradingBot:
 
     def stop(self) -> None:
         self._stop.set()
+        self.stream.stop()
         for t in self._threads:
             t.join(timeout=5)
         self._threads.clear()
@@ -192,6 +221,7 @@ class TradingBot:
             "",
             f"Copy trading: {'on' if settings.enable_copy_trading else 'off'} "
             f"({len(self.copier.leaders)} leaders)",
+            f"Activity stream: {self.stream.status()}",
             f"Limits: ${settings.max_position_usdc:.0f}/mkt, "
             f"${settings.max_daily_notional_usdc:.0f}/day, "
             f"stop -${settings.max_daily_loss_usdc:.0f}",

@@ -18,6 +18,11 @@ tenacity>=9.0,<10
 # eth-account>=0.13, while web3 6.x caps eth-account<0.13.
 py-clob-client>=0.34,<1
 
+# --- realtime ---
+# Sync websocket client. The engine is thread-based, so the callback style of
+# websocket-client fits it directly; an asyncio client would need a bridge.
+websocket-client>=1.7,<2
+
 # --- telegram ---
 # The job-queue extra is deliberately omitted: the engine schedules its own
 # loops on threads (see engine/bot.py) and never touches PTB's JobQueue, so

@@ -279,6 +279,28 @@ Switching mode auto-disarms.
 
 ---
 
+## How a copy signal arrives
+
+Two paths, both ending in the same filter chain:
+
+1. **The activity stream** — `wss://ws-live-data.polymarket.com`, topic
+   `activity` / type `trades`. Every fill on Polymarket, each carrying the
+   trader's `proxyWallet`, roughly 60 events a second. We take the firehose and
+   match wallets locally, because the server-side filters accept only
+   `event_slug` / `market_slug`, never an address. A leader's trade reaches us
+   about a second after it happens.
+2. **The backstop poll** — the data-api every `COPY_POLL_INTERVAL_SEC`, for
+   whatever a disconnect dropped. `seen_leader_trade` dedups the overlap, so a
+   trade delivered twice is mirrored once.
+
+Latency is not cosmetic here. The 4-cent chase guard refuses to follow a leader
+once the market has moved past their fill, so an extra 45 seconds is the
+difference between a mirror and a skip.
+
+Neither the CLOB `market` socket nor the CLOB `user` socket can do this job:
+the first streams books for token ids you name and never says who traded, and
+the second is authenticated and scoped to your own account.
+
 ## Copy-trade leaders
 
 Managed entirely in `.env`. Add, remove or re-weight a wallet, then send
@@ -343,6 +365,7 @@ main.py                     entry point
 polyweather/
   config.py                 all settings, from .env
   clients/  gamma.py        market discovery
+            rtds.py         realtime activity stream (leader fills)
             dataapi.py      public trade/position feeds
             clob.py         order books + authenticated order placement
             http.py         retrying HTTP wrapper
