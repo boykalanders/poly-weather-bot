@@ -74,7 +74,10 @@ class TradingBot:
                 sig.condition_id, sig.price, sig.model_prob, sig.available_size
             )
             if not decision.ok:
-                log.debug("skip %s: %s", sig.market, decision.reason)
+                # INFO, not DEBUG: this is the only record of why a signal the
+                # bot found never became an order, and at DEBUG the bot looks
+                # like it is silently ignoring live signals for no reason.
+                log.info("skip %s: %s", sig.market, decision.reason)
                 continue
 
             # Copy signals ride the leader's conviction, not our Kelly estimate.
@@ -164,10 +167,37 @@ class TradingBot:
         self.store.set_state("last_heartbeat", today)
         self.notify("📊 Daily summary\n" + self.status_text())
 
+    def _warn_if_caps_block_every_order(self) -> None:
+        """Say so at startup when MAX_POSITION_USDC cannot clear the venue floor.
+
+        The exchange will not accept fewer than `min_order_shares`, so the
+        cheapest possible order in a market priced at `p` costs
+        `min_order_shares * p`. If that exceeds the per-market cap, the bot can
+        find signals all day and never place one -- it rounds up to the floor,
+        notices the floor breaches the cap, and refuses. Cheap to detect here,
+        expensive to work out from the logs.
+        """
+        floor_at_min = settings.min_order_shares * settings.min_price
+        floor_at_max = settings.min_order_shares * settings.max_price
+        cap = settings.max_position_usdc
+        if cap < floor_at_max:
+            scope = "every market" if cap < floor_at_min else "most markets"
+            msg = (
+                f"MAX_POSITION_USDC=${cap:.2f} is below the venue minimum for "
+                f"{scope}: {settings.min_order_shares:.0f} shares costs "
+                f"${floor_at_min:.2f}-${floor_at_max:.2f} across the "
+                f"{settings.min_price}-{settings.max_price} price band. "
+                f"Orders will be refused as 'minimum order exceeds remaining cap'. "
+                f"Raise MAX_POSITION_USDC to at least ${floor_at_max:.2f}."
+            )
+            log.warning(msg)
+            self.notify(f"⚠️ {msg}")
+
     # --------------------------------------------------------------- control
     def start(self) -> None:
         if self._threads:
             return
+        self._warn_if_caps_block_every_order()
         self._stop.clear()
         specs = [
             ("copy", self.copy_once, settings.copy_poll_interval_sec),

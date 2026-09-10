@@ -307,3 +307,32 @@ def test_every_quantized_price_is_a_tick_multiple():
             p = quantize_price(raw, tick)
             assert abs(round(p / tick) - p / tick) < 1e-6, (tick, raw, p)
             assert tick <= p <= 1 - tick
+
+
+# ------------------------------------------------- caps vs the venue minimum
+def _guard_message(monkeypatch, cap):
+    """Run the startup guard and return the operator warning, if any."""
+    from polyweather.engine.bot import TradingBot
+    monkeypatch.setattr(settings, "max_position_usdc", cap)
+    bot = TradingBot.__new__(TradingBot)
+    sent = []
+    bot._notify = sent.append
+    bot._warn_if_caps_block_every_order()
+    return sent[0] if sent else ""
+
+
+def test_guard_warns_when_the_cap_cannot_clear_the_venue_floor(monkeypatch):
+    # 5 shares at 0.95 costs $4.75, so a $2 per-market cap can never trade.
+    msg = _guard_message(monkeypatch, 2.0)
+    assert "MAX_POSITION_USDC" in msg and "4.75" in msg
+
+
+def test_guard_is_quiet_when_the_cap_is_workable(monkeypatch):
+    assert _guard_message(monkeypatch, 25.0) == ""
+
+
+def test_guard_distinguishes_every_market_from_most(monkeypatch):
+    # Below the cheapest possible order, nothing can trade at all.
+    assert "every market" in _guard_message(monkeypatch, 0.10)
+    # Above it but below the dearest, only some markets are blocked.
+    assert "most markets" in _guard_message(monkeypatch, 3.0)
