@@ -223,13 +223,30 @@ FUNDER_ADDRESS=0x...           # your Polymarket deposit/proxy address
 SIGNATURE_TYPE=1               # 1 = legacy proxy wallet, 2 = legacy safe wallet
 ```
 
-**Check your wallet type first.** Polymarket gives every account created since
-2026-05-04 a *Deposit Wallet* (type 3), and `py-clob-client` cannot sign for
-one — it only builds orders for types 0/1/2. Live trading therefore works only
-from a legacy Proxy or Safe wallet (or an allowlisted EOA). On
-`SIGNATURE_TYPE=3` the bot refuses to start, rather than accepting `/arm` and
-then failing every order. Paper mode is unaffected; supporting Deposit Wallets
-means porting `clients/clob.py` to Polymarket's newer `polymarket` SDK.
+**Check your wallet type first.** It depends on when the account was created,
+not how you log in: every account created since 2026-05-04 is a *Deposit
+Wallet* (`SIGNATURE_TYPE=3`); older email/Google accounts are Proxy Wallets
+(`1`); older MetaMask/Rabby accounts are Safe Wallets (`2`). All four types
+sign through `py-clob-client-v2`.
+
+**The bot needs the V2 CLOB client.** Polymarket moved to CTF Exchange V2 and
+dropped V1-signed orders on 2026-04-28 — a new order struct, new exchange
+contracts, and pUSD instead of USDC.e as collateral. The legacy
+`py-clob-client` still signs the old struct, and the venue rejects it with
+`invalid order version, please use the latest clob-client`. If you see that,
+your install predates this change:
+
+```bash
+pip uninstall -y py-clob-client
+pip install -r requirements.txt
+```
+
+The V2 client asks the server for the current order version and re-signs on a
+mismatch, so a future version bump should not strand the bot the same way.
+
+**Collateral is pUSD.** Funds still held as USDC.e must be wrapped before they
+can back an order. Depositing through polymarket.com's Bridge wraps
+automatically; otherwise an order fails with `not enough balance / allowance`.
 
 `CLOB_API_KEY` / `CLOB_SECRET` / `CLOB_PASSPHRASE` are derived from the private
 key on first run — leave them blank.

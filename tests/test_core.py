@@ -336,3 +336,19 @@ def test_guard_distinguishes_every_market_from_most(monkeypatch):
     assert "every market" in _guard_message(monkeypatch, 0.10)
     # Above it but below the dearest, only some markets are blocked.
     assert "most markets" in _guard_message(monkeypatch, 3.0)
+
+
+# ------------------------------------------------------- wallet types (V2)
+def test_every_polymarket_wallet_type_is_accepted():
+    # The V2 client signs all four, including the Deposit Wallet (3) that
+    # every account created since 2026-05-04 has.
+    from polyweather.config import Settings
+    for t in (0, 1, 2, 3):
+        assert Settings(signature_type=t, _env_file=None).signature_type == t
+
+
+def test_an_unknown_wallet_type_is_rejected_at_startup():
+    from pydantic import ValidationError
+    from polyweather.config import Settings
+    with pytest.raises(ValidationError):
+        Settings(signature_type=4, _env_file=None)

@@ -1,4 +1,4 @@
-# Build the virtualenv separately so the compiler toolchain that py-clob-client's
+# Build the virtualenv separately so the compiler toolchain that the CLOB client's
 # eth-* dependencies occasionally need does not ship in the final image.
 FROM python:3.12-slim AS build
 

@@ -30,8 +30,8 @@ class Settings(BaseSettings):
     private_key: str = ""
     # Polymarket proxy/funder address (your "deposit address" on the site)
     funder_address: str = ""
-    # 0 = EOA, 1 = legacy Proxy Wallet, 2 = legacy Safe Wallet. Polymarket's
-    # current Deposit Wallet (type 3) is unsupported -- see the validator below.
+    # 0 = EOA, 1 = legacy Proxy Wallet, 2 = legacy Safe Wallet,
+    # 3 = Deposit Wallet (every account created on or after 2026-05-04).
     signature_type: int = 1
 
     # API creds (derived automatically from private_key if left blank)
@@ -95,16 +95,14 @@ class Settings(BaseSettings):
     @field_validator("signature_type")
     @classmethod
     def _known_signature_type(cls, v: int) -> int:
-        # py-order-utils only builds orders for 0/1/2 and rejects anything else
-        # at signing time. Polymarket now defaults new accounts to a Deposit
-        # Wallet (type 3), which this client stack cannot sign for -- catch that
-        # here, at startup, rather than when the first armed order is refused.
-        if v not in (0, 1, 2):
+        # The V2 client signs all four wallet types, including the Deposit
+        # Wallet (POLY_1271 = 3) that Polymarket gives every account created
+        # since 2026-05-04. Anything else is a typo; catch it here, at startup,
+        # rather than when the first armed order is refused.
+        if v not in (0, 1, 2, 3):
             raise ValueError(
-                f"SIGNATURE_TYPE={v} is not supported by py-clob-client "
-                "(0=EOA, 1=proxy/magic, 2=Gnosis safe). Polymarket's Deposit "
-                "Wallet is type 3 and needs the newer `polymarket` SDK; this "
-                "bot cannot trade live from one."
+                f"SIGNATURE_TYPE={v} is not a Polymarket wallet type "
+                "(0=EOA, 1=Proxy Wallet, 2=Safe Wallet, 3=Deposit Wallet)."
             )
         return v
 

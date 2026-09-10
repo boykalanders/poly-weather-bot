@@ -1,7 +1,15 @@
 """CLOB client: order books (public) and order placement (authenticated).
 
-`py_clob_client` is imported lazily so that paper mode — and the Telegram
+`py_clob_client_v2` is imported lazily so that paper mode — and the Telegram
 control surface — keep working on a machine with no wallet configured.
+
+This has to be the V2 client. The CLOB moved to CTF Exchange V2 and dropped V1
+outright on 2026-04-28: the order struct lost `nonce` / `feeRateBps` and gained
+`timestamp` / `metadata` / `builder`, the exchange contracts changed, and pUSD
+replaced USDC.e as collateral. The legacy `py-clob-client` still signs the old
+struct, which the venue refuses with "invalid order version". The V2 client asks
+the server for the current order version and re-signs on a mismatch, so the
+next version bump should not strand the bot the same way.
 """
 from __future__ import annotations
 
@@ -53,7 +61,7 @@ class OrderResult:
 class ClobClient:
     def __init__(self):
         self._h = Http(settings.clob_host)
-        self._client = None      # py_clob_client instance, built on demand
+        self._client = None      # py_clob_client_v2 instance, built on demand
         self._auth_error: str | None = None
 
     # ------------------------------------------------------------------ public
@@ -91,10 +99,13 @@ class ClobClient:
             raise RuntimeError(self._auth_error)
 
         try:
-            from py_clob_client.client import ClobClient as _Clob
-            from py_clob_client.clob_types import ApiCreds
+            from py_clob_client_v2.client import ClobClient as _Clob
+            from py_clob_client_v2.clob_types import ApiCreds
         except ImportError as e:  # pragma: no cover
-            self._auth_error = f"py-clob-client not installed ({e})"
+            self._auth_error = (
+                f"py-clob-client-v2 not installed ({e}) -- run "
+                "`pip install -r requirements.txt`"
+            )
             raise RuntimeError(self._auth_error) from e
 
         c = _Clob(
@@ -112,7 +123,8 @@ class ClobClient:
             )
         else:
             # Deterministically derive (or create) L2 creds from the signing key.
-            creds = c.create_or_derive_api_creds()
+            # V2 renamed this from create_or_derive_api_creds.
+            creds = c.create_or_derive_api_key()
         c.set_api_creds(creds)
         self._client = c
         log.info("CLOB authenticated for funder %s", settings.funder_address)
@@ -123,19 +135,24 @@ class ClobClient:
     ) -> OrderResult:
         """Place a limit order. `size` is in shares, `price` in USDC per share."""
         try:
-            from py_clob_client.clob_types import OrderArgs, OrderType
-            from py_clob_client.order_builder.constants import BUY, SELL
+            from py_clob_client_v2.clob_types import OrderArgs, OrderType
+            from py_clob_client_v2.order_builder.constants import BUY, SELL
 
             c = self._ensure_client()
             args = OrderArgs(
                 token_id=token_id,
-                price=round(float(price), 3),
+                # The executor has already snapped this to the market's tick
+                # grid. Rounding to 3 dp here would silently move a price on a
+                # 0.0001-tick market; 6 dp only strips float noise.
+                price=round(float(price), 6),
                 size=round(float(size), 2),
                 side=BUY if side.upper() == "BUY" else SELL,
             )
             signed = c.create_order(args)
             order_type = getattr(OrderType, tif, OrderType.GTC)
             resp = c.post_order(signed, order_type)
+            if not isinstance(resp, dict):
+                resp = {"success": bool(resp), "status": str(resp)}
             ok = bool(resp.get("success", True)) and not resp.get("errorMsg")
             return OrderResult(
                 ok=ok,
@@ -157,7 +174,8 @@ class ClobClient:
 
     def open_orders(self) -> list[dict]:
         try:
-            return self._ensure_client().get_orders() or []
+            # V2 replaced get_orders with the paginated get_open_orders.
+            return self._ensure_client().get_open_orders() or []
         except Exception as e:
             log.warning("open_orders failed: %s", e)
             return []

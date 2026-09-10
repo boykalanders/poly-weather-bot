@@ -11,12 +11,15 @@ pydantic-settings>=2.5,<3
 tenacity>=9.0,<10
 
 # --- polymarket trading ---
+# The V2 client. The CLOB dropped V1-signed orders on 2026-04-28, so the legacy
+# `py-clob-client` (last release 0.34.6) can no longer place an order at all --
+# the venue answers "invalid order version". Uninstall it if it is still there.
 # Brings its own eth-account / eth-utils / py-order-utils stack.
 #
 # Do NOT add web3 here. Nothing in this project imports it, and pinning it
-# alongside py-clob-client is unresolvable: py-clob-client >=0.20 needs
-# eth-account>=0.13, while web3 6.x caps eth-account<0.13.
-py-clob-client>=0.34,<1
+# alongside the CLOB client is unresolvable: the client needs eth-account>=0.13,
+# while web3 6.x caps eth-account<0.13.
+py-clob-client-v2>=1.1,<2
 
 # --- realtime ---
 # Sync websocket client. The engine is thread-based, so the callback style of
