@@ -478,3 +478,41 @@ def test_a_network_error_is_not_mistaken_for_bad_creds(monkeypatch):
     _fake_clob(monkeypatch, TimeoutError("slow"))
     with pytest.raises(TimeoutError):
         _build_inner()
+
+
+# ------------------------------------------------ venue rejections explained
+_MAKER = ("PolyApiException[status_code=400, error_message={'error': "
+          "'maker address not allowed, please use the deposit wallet flow'}]")
+
+
+def test_maker_not_allowed_points_a_proxy_config_at_the_deposit_wallet(monkeypatch):
+    from polyweather.engine.executor import explain_venue_error
+    monkeypatch.setattr(settings, "signature_type", 1)
+    msg = explain_venue_error(_MAKER)
+    assert msg.startswith(_MAKER)            # the venue's own words survive
+    assert "SIGNATURE_TYPE=3" in msg and "profile menu" in msg
+
+
+def test_maker_not_allowed_on_type_3_blames_the_address_not_the_type(monkeypatch):
+    from polyweather.engine.executor import explain_venue_error
+    monkeypatch.setattr(settings, "signature_type", 3)
+    msg = explain_venue_error(_MAKER)
+    assert "FUNDER_ADDRESS is not" in msg
+    assert "set SIGNATURE_TYPE=3" not in msg
+
+
+def test_signer_mismatch_names_the_private_key():
+    from polyweather.engine.executor import explain_venue_error
+    msg = explain_venue_error("the order signer address has to be the address of the API KEY")
+    assert "PRIVATE_KEY" in msg and "#75" in msg
+
+
+def test_balance_rejection_mentions_pusd():
+    from polyweather.engine.executor import explain_venue_error
+    assert "pUSD" in explain_venue_error("not enough balance / allowance")
+
+
+def test_unrecognised_errors_pass_through_untouched():
+    from polyweather.engine.executor import explain_venue_error
+    assert explain_venue_error("timeout") == "timeout"
+    assert explain_venue_error("") == ""

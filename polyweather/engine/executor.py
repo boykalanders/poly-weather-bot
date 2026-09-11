@@ -30,6 +30,33 @@ def _is_permanent(error: str) -> bool:
     return any(marker in e for marker in _PERMANENT)
 
 
+def explain_venue_error(error: str) -> str:
+    """Append the setting to change when a rejection is really a config problem.
+
+    The venue's messages are accurate but never name a setting, and each of
+    these has cost a round trip to decode from an alert.
+    """
+    e = (error or "").lower()
+    if "maker address not allowed" in e:
+        if settings.signature_type != 3:
+            hint = ("this account trades from a Deposit Wallet: set SIGNATURE_TYPE=3 "
+                    "and FUNDER_ADDRESS to the wallet address in your polymarket.com "
+                    "profile menu")
+        else:
+            hint = ("FUNDER_ADDRESS is not this account's Deposit Wallet: copy the "
+                    "wallet address from your polymarket.com profile menu")
+    elif "order signer address has to be the address of the api key" in e:
+        hint = ("the exchange would not tie this Deposit Wallet order to the key "
+                "derived from PRIVATE_KEY -- check PRIVATE_KEY is the key exported "
+                "for this account (see py-clob-client-v2 issue #75)")
+    elif "not enough balance" in e or "allowance" in e:
+        hint = ("the wallet needs pUSD and exchange approvals: a deposit or one trade "
+                "on polymarket.com wraps to pUSD and sets them")
+    else:
+        return error
+    return f"{error} -- {hint}"
+
+
 def quantize_price(price: float, tick: float) -> float:
     """Snap `price` up to the market's tick grid, clamped inside (0, 1).
 
@@ -90,7 +117,7 @@ class Executor:
         order_id, error, ok = "", "", True
         if mode == "live":
             res = self.clob.place_limit_order(sig.token_id, "BUY", limit, shares, tif="GTC")
-            ok, order_id, error = res.ok, res.order_id, res.error
+            ok, order_id, error = res.ok, res.order_id, explain_venue_error(res.error)
         else:
             order_id = f"paper-{int(time.time()*1000)}"
 
