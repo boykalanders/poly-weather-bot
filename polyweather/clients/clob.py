@@ -134,19 +134,45 @@ class ClobClient:
             funder=settings.funder_address,
         )
         if settings.clob_api_key and settings.clob_secret and settings.clob_passphrase:
-            creds = ApiCreds(
+            c.set_api_creds(ApiCreds(
                 api_key=settings.clob_api_key,
                 api_secret=settings.clob_secret,
                 api_passphrase=settings.clob_passphrase,
-            )
+            ))
+            if not self._creds_accepted(c):
+                log.warning(
+                    "CLOB_API_KEY was rejected by the exchange (401). Trading "
+                    "credentials are derived from PRIVATE_KEY and bound to its "
+                    "address; the keys under polymarket.com Settings -> API Keys "
+                    "and Settings -> Builders are Relayer and Builder keys, a "
+                    "different kind. Deriving the right ones from PRIVATE_KEY "
+                    "instead -- clear CLOB_API_KEY / CLOB_SECRET / CLOB_PASSPHRASE "
+                    "in .env to stop this warning."
+                )
+                c.set_api_creds(c.create_or_derive_api_key())
         else:
             # Deterministically derive (or create) L2 creds from the signing key.
             # V2 renamed this from create_or_derive_api_creds.
-            creds = c.create_or_derive_api_key()
-        c.set_api_creds(creds)
+            c.set_api_creds(c.create_or_derive_api_key())
         self._client = c
         log.info("CLOB authenticated for funder %s", settings.funder_address)
         return c
+
+    @staticmethod
+    def _creds_accepted(c) -> bool:
+        """Whether the exchange accepts the configured L2 credentials.
+
+        Only a 401/403 says they are not this signer's CLOB keys. A timeout or a
+        5xx is no evidence either way, so it propagates rather than triggering a
+        re-derive over a link that is already failing.
+        """
+        try:
+            c.get_api_keys()
+        except Exception as e:
+            if getattr(e, "status_code", None) in (401, 403):
+                return False
+            raise
+        return True
 
     def place_limit_order(
         self, token_id: str, side: str, price: float, size: float, tif: str = "GTC"

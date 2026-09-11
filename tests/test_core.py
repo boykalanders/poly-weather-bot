@@ -409,3 +409,72 @@ def test_startup_is_quiet_in_paper_mode_even_without_the_client(monkeypatch):
 
 def test_startup_is_quiet_when_the_client_is_installed(monkeypatch):
     assert _startup_warning(monkeypatch, "live") == ""
+
+
+# ------------------------------------------ configured CLOB creds rejected
+class _AuthErr(Exception):
+    """Stand-in for PolyApiException, which carries the HTTP status."""
+    def __init__(self, status):
+        super().__init__(f"status {status}")
+        self.status_code = status
+
+
+def _fake_clob(monkeypatch, verdict):
+    """Swap in a CLOB client whose get_api_keys answers with `verdict`."""
+    import py_clob_client_v2.client as v2
+
+    class Fake:
+        def __init__(self, **kw):
+            self.creds, self.derived = None, 0
+
+        def set_api_creds(self, creds):
+            self.creds = creds
+
+        def get_api_keys(self):
+            if isinstance(verdict, BaseException):
+                raise verdict
+            return ["ok"]
+
+        def create_or_derive_api_key(self):
+            self.derived += 1
+            return "DERIVED"
+
+    monkeypatch.setattr(v2, "ClobClient", Fake)
+    monkeypatch.setattr(settings, "private_key", "0x" + "1" * 64)
+    monkeypatch.setattr(settings, "funder_address", "0x" + "2" * 40)
+    monkeypatch.setattr(settings, "clob_api_key", "website-key")
+    monkeypatch.setattr(settings, "clob_secret", "c2VjcmV0")
+    monkeypatch.setattr(settings, "clob_passphrase", "pass")
+
+
+def _build_inner():
+    from polyweather.clients.clob import ClobClient
+    c = ClobClient()
+    try:
+        return c._ensure_client()
+    finally:
+        c.close()
+
+
+def test_rejected_configured_creds_fall_back_to_derived(monkeypatch):
+    # A Builder/Relayer key pasted into CLOB_API_KEY gets a 401 from the
+    # exchange; the bot should derive the right credentials, not fail orders.
+    _fake_clob(monkeypatch, _AuthErr(401))
+    inner = _build_inner()
+    assert inner.derived == 1
+    assert inner.creds == "DERIVED"
+
+
+def test_accepted_configured_creds_are_kept(monkeypatch):
+    _fake_clob(monkeypatch, None)
+    inner = _build_inner()
+    assert inner.derived == 0
+    assert inner.creds.api_key == "website-key"
+
+
+def test_a_network_error_is_not_mistaken_for_bad_creds(monkeypatch):
+    # A timeout says nothing about the credentials; re-deriving over a failing
+    # link would just fail again, so surface the real error instead.
+    _fake_clob(monkeypatch, TimeoutError("slow"))
+    with pytest.raises(TimeoutError):
+        _build_inner()
