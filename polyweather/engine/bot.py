@@ -193,10 +193,26 @@ class TradingBot:
             log.warning(msg)
             self.notify(f"⚠️ {msg}")
 
+    def _warn_if_live_client_missing(self) -> None:
+        """Say so at startup when live mode cannot sign an order at all.
+
+        Catches the upgrade that looks done but is not: a bare `pip install`
+        lands in whichever Python is first on PATH, rarely the venv the service
+        runs, and the gap only shows when the first real signal fails to
+        import. Paper mode never touches the CLOB client, so it stays quiet.
+        """
+        from ..clients.clob import MISSING_CLIENT_HINT, live_client_installed
+        if settings.trading_mode != "live" or live_client_installed():
+            return
+        msg = f"Live mode, but {MISSING_CLIENT_HINT}. Every order will fail until then."
+        log.warning(msg)
+        self.notify(f"⚠️ {msg}")
+
     # --------------------------------------------------------------- control
     def start(self) -> None:
         if self._threads:
             return
+        self._warn_if_live_client_missing()
         self._warn_if_caps_block_every_order()
         self._stop.clear()
         specs = [

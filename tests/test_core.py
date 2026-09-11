@@ -352,3 +352,60 @@ def test_an_unknown_wallet_type_is_rejected_at_startup():
     from polyweather.config import Settings
     with pytest.raises(ValidationError):
         Settings(signature_type=4, _env_file=None)
+
+
+# ------------------------------------------- missing V2 client in live mode
+def _hide_v2_client(monkeypatch):
+    """Make `import py_clob_client_v2` fail, as in a venv that never got it."""
+    import sys
+    for name in [m for m in list(sys.modules) if m.startswith("py_clob_client_v2")]:
+        monkeypatch.delitem(sys.modules, name)
+    monkeypatch.setitem(sys.modules, "py_clob_client_v2", None)
+
+
+def test_order_failure_names_the_fix_when_the_client_is_missing(monkeypatch):
+    # The raw ImportError used to surface first, with no hint at the cause.
+    from polyweather.clients.clob import ClobClient
+    _hide_v2_client(monkeypatch)
+    monkeypatch.setattr(settings, "private_key", "0x" + "1" * 64)
+    monkeypatch.setattr(settings, "funder_address", "0x" + "2" * 40)
+    c = ClobClient()
+    try:
+        res = c.place_limit_order("123", "BUY", 0.5, 5.0)
+    finally:
+        c.close()
+    assert not res.ok
+    assert "-m pip install -r requirements.txt" in res.error
+    assert "not a bare `pip`" in res.error
+
+
+def test_live_client_check_reports_absence(monkeypatch):
+    from polyweather.clients.clob import live_client_installed
+    assert live_client_installed()
+    _hide_v2_client(monkeypatch)
+    assert not live_client_installed()
+
+
+def _startup_warning(monkeypatch, mode):
+    from polyweather.engine.bot import TradingBot
+    monkeypatch.setattr(settings, "trading_mode", mode)
+    bot = TradingBot.__new__(TradingBot)
+    sent = []
+    bot._notify = sent.append
+    bot._warn_if_live_client_missing()
+    return sent[0] if sent else ""
+
+
+def test_startup_warns_in_live_mode_when_the_client_is_missing(monkeypatch):
+    _hide_v2_client(monkeypatch)
+    assert "requirements.txt" in _startup_warning(monkeypatch, "live")
+
+
+def test_startup_is_quiet_in_paper_mode_even_without_the_client(monkeypatch):
+    # Paper never touches the CLOB client, so a missing package is harmless.
+    _hide_v2_client(monkeypatch)
+    assert _startup_warning(monkeypatch, "paper") == ""
+
+
+def test_startup_is_quiet_when_the_client_is_installed(monkeypatch):
+    assert _startup_warning(monkeypatch, "live") == ""

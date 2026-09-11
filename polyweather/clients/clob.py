@@ -22,6 +22,27 @@ from .http import Http
 log = logging.getLogger(__name__)
 
 
+MISSING_CLIENT_HINT = (
+    "py-clob-client-v2 not installed in the Python running the bot -- run "
+    "`<venv>/python -m pip install -r requirements.txt` with the bot's own "
+    "interpreter, not a bare `pip`"
+)
+
+
+def live_client_installed() -> bool:
+    """Whether the V2 CLOB client can be imported by *this* interpreter.
+
+    Checked at startup in live mode. A bare `pip install` targets whichever
+    Python is first on PATH, which is rarely the venv the service runs, so the
+    upgrade looks done and the first order still fails on import.
+    """
+    try:
+        import py_clob_client_v2  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
 @dataclass
 class Book:
     token_id: str
@@ -101,11 +122,8 @@ class ClobClient:
         try:
             from py_clob_client_v2.client import ClobClient as _Clob
             from py_clob_client_v2.clob_types import ApiCreds
-        except ImportError as e:  # pragma: no cover
-            self._auth_error = (
-                f"py-clob-client-v2 not installed ({e}) -- run "
-                "`pip install -r requirements.txt`"
-            )
+        except ImportError as e:
+            self._auth_error = f"{MISSING_CLIENT_HINT} ({e})"
             raise RuntimeError(self._auth_error) from e
 
         c = _Clob(
@@ -135,10 +153,13 @@ class ClobClient:
     ) -> OrderResult:
         """Place a limit order. `size` is in shares, `price` in USDC per share."""
         try:
+            # _ensure_client first: when the package is missing, its error says
+            # how to fix it. Importing here first surfaced a bare "No module
+            # named 'py_clob_client_v2'" instead, with no hint at the cause.
+            c = self._ensure_client()
             from py_clob_client_v2.clob_types import OrderArgs, OrderType
             from py_clob_client_v2.order_builder.constants import BUY, SELL
 
-            c = self._ensure_client()
             args = OrderArgs(
                 token_id=token_id,
                 # The executor has already snapped this to the market's tick
